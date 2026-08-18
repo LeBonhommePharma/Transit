@@ -16,14 +16,18 @@ export function haversineMeters(
 /** Typical STM tunnel depth, meters below street. */
 export const METRO_DEPTH_M = -24;
 
-/** Screen-Y lift for a height in meters. Roofs go up; tunnels go down. */
+/** Screen-Y lift for a height in meters. Roofs go up; tunnels go down. Capped so houses stay house-sized. */
 export function altitudeLiftPx(altM: number, zoom: number, pitch: number, scale = 1): number {
   if (!Number.isFinite(altM) || altM === 0 || !Number.isFinite(zoom)) return 0;
   const p = Number.isFinite(pitch) ? Math.min(1, Math.max(0, pitch)) : 0;
-  const pxPerMeter = Math.max(0.18, 2 ** (zoom - 15) * 1.15);
-  const rise = 0.5 + p * 2.6;
-  const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
-  return -altM * pxPerMeter * rise * s;
+  const pxPerMeter = 0.95 + Math.min(0.7, Math.max(0, 2 ** (zoom - 15) * 0.25));
+  const rise = 0.72 + p * 1.35;
+  const s = Number.isFinite(scale) && scale > 0 ? Math.min(scale, 1.12) : 1;
+  const raw = -altM * pxPerMeter * rise * s;
+  const cap = 68 + p * 42;
+  if (raw < -cap) return -cap;
+  if (raw > cap) return cap;
+  return raw;
 }
 
 /** Apple-style pitch: 0 is nadir, 1 is ~55°. Optional altitude in meters. */

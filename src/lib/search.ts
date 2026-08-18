@@ -97,6 +97,24 @@ export function stopHasService(
   return ids.some((id) => Array.isArray(timetable[id]) && timetable[id].length > 0);
 }
 
+/** Closest official pole to a dropped pin. Empty / far / junk → null. */
+export function nearestStopForPin<T extends { lon: number; lat: number; kind?: number }>(
+  stops: T[],
+  point: { lon: number; lat: number },
+  radiusM = 280,
+): (T & { meters: number }) | null {
+  if (!isFinitePoint(point) || !Array.isArray(stops)) return null;
+  let best: (T & { meters: number }) | null = null;
+  for (const stop of stops) {
+    if (stop.kind === 2) continue;
+    if (!Number.isFinite(stop.lon) || !Number.isFinite(stop.lat)) continue;
+    const meters = haversineMeters(point, stop);
+    if (!Number.isFinite(meters) || meters > radiusM) continue;
+    if (!best || meters < best.meters) best = { ...stop, meters };
+  }
+  return best;
+}
+
 export function nearbyStops(
   stops: AtlasStop[],
   point: { lon: number; lat: number },

@@ -24,6 +24,13 @@ export function emptyRiderStore(): RiderStore {
   return { here: null };
 }
 
+/** Drop an in-app GPS grant so the next locate must ask again. Map fallbacks stay map. */
+export function forgetInAppLocationGrant(store: RiderStore): RiderStore {
+  if (!store || !store.here) return { here: null };
+  if (store.here.source === "gps") return { here: null };
+  return { here: { ...store.here } };
+}
+
 /** Only a real GPS/watch fix may enter the crowd-probe store. Map-center fallbacks never invent a bus. */
 export function isCrowdProbeSource(source: unknown): boolean {
   return source === "gps";

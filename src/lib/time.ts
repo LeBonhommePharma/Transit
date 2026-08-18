@@ -48,33 +48,39 @@ export function weekdayMon0(date: Date): number {
 
 export function prefersHour12(locale?: string): boolean {
   try {
-    // This atlas is America/Montreal. A US-English browser locale reports h12
-    // even when macOS is 24h. Honour an explicit locale, then Canadian 24h.
-    const candidates = locale ? [locale] : ["fr-CA", "en-CA", undefined];
-    let saw12 = false;
-    for (const loc of candidates) {
-      const opts = new Intl.DateTimeFormat(loc, { hour: "numeric" }).resolvedOptions();
-      if (opts.hourCycle === "h23" || opts.hourCycle === "h24") return false;
-      if (opts.hourCycle === "h11" || opts.hourCycle === "h12") saw12 = true;
-      else if (opts.hour12) saw12 = true;
-    }
-    return saw12;
+    const opts = new Intl.DateTimeFormat(locale, { hour: "numeric" }).resolvedOptions();
+    if (opts.hourCycle === "h23" || opts.hourCycle === "h24") return false;
+    if (opts.hourCycle === "h11" || opts.hourCycle === "h12") return true;
+    return Boolean(opts.hour12);
   } catch {
     return false;
   }
 }
 
-export function formatClock(minutes: number, _hour12 = false): string {
+export function formatClock(minutes: number, hour12 = false): string {
   const wrap = ((minutes % 1440) + 1440) % 1440;
   const h = Math.floor(wrap / 60);
   const m = wrap % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  const mm = String(m).padStart(2, "0");
+  if (!hour12) return `${String(h).padStart(2, "0")}:${mm}`;
+  const suffix = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${mm} ${suffix}`;
 }
 
 /** Parse a 24h field. Accepts 16:00, 1600, 16h00. Garbage → null. */
 export function parseClock24(value: unknown): number | null {
   if (value == null) return null;
   const raw = String(value).trim();
+  const ampm = raw.match(/^(\d{1,2})(?:[:hH.\s](\d{2}))?\s*([ap]m)$/i);
+  if (ampm) {
+    let h = Number(ampm[1]);
+    const min = Number(ampm[2] || 0);
+    if (!Number.isFinite(h) || !Number.isFinite(min) || h < 1 || h > 12 || min > 59) return null;
+    if (h === 12) h = 0;
+    if (ampm[3].toLowerCase() === "pm") h += 12;
+    return h * 60 + min;
+  }
   const m = raw.match(/^(\d{1,2})(?:[:hH.\s]?(\d{2}))?$/);
   if (!m) return null;
   const h = Number(m[1]);

@@ -5,7 +5,7 @@ export type BuildingFootprint = {
   heightM: number;
 };
 
-export const BUILDING_ZOOM = 13;
+export const BUILDING_ZOOM = 12.6;
 export const BUILDING_CAP = 280;
 
 export function buildingHeightMeters(tags: unknown): number {
@@ -106,4 +106,8 @@ export function overpassQuery(bbox: { south: number; west: number; north: number
     .map((n) => (Number.isFinite(n) ? n.toFixed(5) : ""))
     .join(",");
   return `[out:json][timeout:12];way["building"](${s});out tags geom ${BUILDING_CAP};`;
+}
+
+export function overpassPostBody(query: string): string {
+  return `data=${encodeURIComponent(query || "")}`;
 }

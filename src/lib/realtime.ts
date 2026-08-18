@@ -16,12 +16,48 @@ export type VehiclePosition = {
   lat: number;
 };
 
+export type TempStop = {
+  id: string;
+  name: string;
+  lon: number;
+  lat: number;
+  routeId?: string;
+};
+
 export type Detour = {
   routeId?: string;
   shape?: string;
   skipStopIds?: string[];
   extraMinutes?: number;
+  tempStops?: TempStop[];
+  from?: number;
+  until?: number;
 };
+
+function epochMs(value: unknown): number | undefined {
+  const n = num(value);
+  if (n == null) return undefined;
+  return n < 1e12 ? n * 1000 : n;
+}
+
+export function detourWindow(row: Record<string, unknown>): { from?: number; until?: number } {
+  const periods = row.activePeriod ?? row.active_period;
+  const first = Array.isArray(periods) ? asRecord(periods[0]) : asRecord(periods);
+  return {
+    from: epochMs(row.from ?? row.start ?? row.validFrom ?? first?.start),
+    until: epochMs(row.until ?? row.end ?? row.validUntil ?? first?.end),
+  };
+}
+
+export function detourIsActive(detour: Detour, now = Date.now()): boolean {
+  if (typeof detour.from === "number" && Number.isFinite(detour.from) && now < detour.from) return false;
+  if (typeof detour.until === "number" && Number.isFinite(detour.until) && now >= detour.until) return false;
+  return true;
+}
+
+export function activeDetours(detours: Detour[], now = Date.now()): Detour[] {
+  return detours.filter((item) => detourIsActive(item, now));
+}
 
 export function applyTripUpdate(depart: number, update: TripUpdate): number | null {
   if (update.canceled) return null;
@@ -95,6 +131,51 @@ function num(value: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function str(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
+}
+
+export function parseTempStops(raw: unknown): TempStop[] {
+  if (!Array.isArray(raw)) return [];
+  const out: TempStop[] = [];
+  for (const item of raw) {
+    const row = asRecord(item);
+    if (!row) continue;
+    const lon = num(row.lon ?? row.longitude ?? row.stop_lon);
+    const lat = num(row.lat ?? row.latitude ?? row.stop_lat);
+    if (lon == null || lat == null || (lon === 0 && lat === 0)) continue;
+    const id = str(row.id) || str(row.stopId) || str(row.stop_id);
+    if (!id) continue;
+    out.push({
+      id,
+      name: str(row.name) || str(row.stop_name) || id,
+      lon,
+      lat,
+      routeId: str(row.routeId) || str(row.route_id),
+    });
+  }
+  return out;
+}
+
+function addSkip(detours: Detour[], routeId: string | undefined, stopId: string) {
+  const existing = detours.find((d) => d.routeId === routeId);
+  if (existing) {
+    existing.skipStopIds = [...(existing.skipStopIds || []), stopId];
+    return;
+  }
+  detours.push({ routeId, skipStopIds: [stopId] });
+}
+
+function addTemp(detours: Detour[], routeId: string | undefined, stop: TempStop) {
+  const existing = detours.find((d) => d.routeId === routeId);
+  const row = { ...stop, routeId: stop.routeId || routeId };
+  if (existing) {
+    existing.tempStops = [...(existing.tempStops || []), row];
+    return;
+  }
+  detours.push({ routeId, tempStops: [row] });
+}
+
 /** Decode compact JSON or GTFS-RT-shaped JSON. No zip fetch. */
 export function parseRealtimePayload(raw: unknown): RealtimeBundle {
   const empty: RealtimeBundle = { updates: [], vehicles: [], shapes: {}, detours: [] };
@@ -141,11 +222,16 @@ export function parseRealtimePayload(raw: unknown): RealtimeBundle {
       const skip = Array.isArray(row.skipStopIds)
         ? row.skipStopIds.filter((id): id is string => typeof id === "string")
         : [];
+      const temps = parseTempStops(row.tempStops ?? row.temporaryStops ?? row.addedStops);
+      const window = detourWindow(row);
       detours.push({
-        routeId: typeof row.routeId === "string" ? row.routeId : undefined,
+        routeId: typeof row.routeId === "string" ? row.routeId : typeof row.route_id === "string" ? row.route_id : undefined,
         shape: typeof row.shape === "string" ? row.shape : undefined,
         skipStopIds: skip,
         extraMinutes: num(row.extraMinutes),
+        tempStops: temps,
+        from: window.from,
+        until: window.until,
       });
     }
   }
@@ -191,15 +277,36 @@ export function parseRealtimePayload(raw: unknown): RealtimeBundle {
               canceled: canceled || skipped,
               departure: undefined,
             });
-            if (skipped && stopId) {
-              const existing = detours.find((d) => d.routeId === routeId);
-              if (existing) existing.skipStopIds = [...(existing.skipStopIds || []), stopId];
-              else detours.push({ routeId, skipStopIds: [stopId] });
-            }
+            if (skipped && stopId) addSkip(detours, routeId, stopId);
           }
         } else {
           updates.push({ routeId, canceled: Boolean(canceled) });
         }
+      }
+      const alert = asRecord(rec.alert);
+      if (alert) {
+        const effect = alert.effect;
+        const skipEffect =
+          effect === 2 ||
+          effect === 5 ||
+          effect === 9 ||
+          effect === "NO_SERVICE" ||
+          effect === "DETOUR" ||
+          effect === "STOP_MOVED";
+        const informed = alert.informed_entity ?? alert.informedEntity;
+        if (skipEffect && Array.isArray(informed)) {
+          for (const ent of informed) {
+            const row = asRecord(ent);
+            if (!row) continue;
+            const routeId = str(row.route_id) || str(row.routeId);
+            const stopId = str(row.stop_id) || str(row.stopId);
+            if (stopId) addSkip(detours, routeId, stopId);
+          }
+        }
+        const temps = parseTempStops(
+          alert.tempStops ?? alert.temporaryStops ?? alert.addedStops ?? alert.replacement_stops,
+        );
+        for (const stop of temps) addTemp(detours, stop.routeId, stop);
       }
       const vehicle = asRecord(rec.vehicle);
       if (vehicle) {
@@ -269,8 +376,12 @@ export function applyDetour(input: {
   fromIndex: number;
   toIndex: number;
   detour: Detour;
+  now?: number;
 }): { line: [number, number][]; minutes: number; staticMinutes: number } {
   const staticMinutes = hopMinutes(input.hops, input.fromIndex, input.toIndex);
+  if (!detourIsActive(input.detour, input.now)) {
+    return { line: decodePolyline(input.staticEncoded), minutes: staticMinutes, staticMinutes };
+  }
   const skip = new Set(input.detour.skipStopIds || []);
   let minutes = staticMinutes;
   if (skip.size > 0) {
@@ -302,8 +413,89 @@ export function applyDetour(input: {
   return { line: frozen, minutes, staticMinutes };
 }
 
-export function detourForRoute(detours: Detour[], routeId: string): Detour | undefined {
-  return detours.find((item) => !item.routeId || item.routeId === routeId);
+export function detourForRoute(detours: Detour[], routeId: string, now = Date.now()): Detour | undefined {
+  return activeDetours(detours, now).find((item) => !item.routeId || item.routeId === routeId);
+}
+
+export function skippedStopIds(detours: Detour[], routeId?: string): Set<string> {
+  const ids = new Set<string>();
+  for (const d of detours) {
+    if (routeId && d.routeId && d.routeId !== routeId) continue;
+    for (const id of d.skipStopIds || []) ids.add(id);
+  }
+  return ids;
+}
+
+export function temporaryStopsForRoute(detours: Detour[], routeId?: string): TempStop[] {
+  const out: TempStop[] = [];
+  const seen = new Set<string>();
+  for (const d of detours) {
+    if (routeId && d.routeId && d.routeId !== routeId) continue;
+    for (const stop of d.tempStops || []) {
+      if (seen.has(stop.id)) continue;
+      if (routeId && stop.routeId && stop.routeId !== routeId) continue;
+      seen.add(stop.id);
+      out.push(stop);
+    }
+  }
+  return out;
+}
+
+export type DetourStop = {
+  id: string;
+  name: string;
+  lon: number;
+  lat: number;
+  routes: string[];
+  kind?: number;
+  temporary?: boolean;
+};
+
+export function mergeStopsWithDetours(
+  stops: Array<{ id: string; name: string; lon: number; lat: number; routes: string[]; kind?: number }>,
+  detours: Detour[],
+  now = Date.now(),
+): DetourStop[] {
+  detours = activeDetours(detours, now);
+  const banned = new Map<string, Set<string>>();
+  for (const d of detours) {
+    for (const id of d.skipStopIds || []) {
+      const set = banned.get(id) || new Set<string>();
+      set.add(d.routeId || "*");
+      banned.set(id, set);
+    }
+  }
+  const out: DetourStop[] = [];
+  for (const stop of stops) {
+    const drop = banned.get(stop.id);
+    if (!drop) {
+      out.push({ ...stop, routes: [...(stop.routes || [])] });
+      continue;
+    }
+    if (drop.has("*")) continue;
+    const routes = (stop.routes || []).filter((id) => !drop.has(id));
+    if (!routes.length && (stop.routes || []).length) continue;
+    out.push({ ...stop, routes });
+  }
+  for (const temp of temporaryStopsForRoute(detours)) {
+    const hit = out.find((s) => s.id === temp.id);
+    const rid = temp.routeId;
+    if (hit) {
+      if (rid && !hit.routes.includes(rid)) hit.routes.push(rid);
+      hit.temporary = true;
+      continue;
+    }
+    out.push({
+      id: temp.id,
+      name: temp.name,
+      lon: temp.lon,
+      lat: temp.lat,
+      routes: rid ? [rid] : [],
+      kind: 0,
+      temporary: true,
+    });
+  }
+  return out;
 }
 
 export function samePolyline(a: [number, number][], b: [number, number][]): boolean {

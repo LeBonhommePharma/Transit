@@ -2,6 +2,7 @@ import type { Atlas, Timetable } from "./atlas/types";
 import { formatClock } from "./time";
 import { departuresAtStop } from "./planner";
 import { fold, isFinitePoint, nearbyStops } from "./search";
+import { mergeStopsWithDetours, type Detour } from "./realtime";
 
 export type NearbyLine = {
   routeId: string;
@@ -34,9 +35,11 @@ export function nearbyLines(
   here: { lon: number; lat: number },
   dest?: { lon: number; lat: number } | null,
   radiusM = 1200,
+  detours: Detour[] = [],
 ): NearbyLine[] {
   if (!isFinitePoint(here)) return [];
-  const near = nearbyStops(atlas.stops, here, radiusM, 24);
+  const stops = (detours.length ? mergeStopsWithDetours(atlas.stops, detours) : atlas.stops) as typeof atlas.stops;
+  const near = nearbyStops(stops, here, radiusM, 24);
   if (near.length === 0) return [];
   const destRouteIds = new Set<string>();
   if (dest && isFinitePoint(dest)) {
@@ -87,13 +90,19 @@ export function nextDueOnLine(
   now: number,
   active: Set<number>,
   limit = 12,
+  detours: Detour[] = [],
 ): LineDue[] {
   if (!isFinitePoint(here) || !routeId) return [];
   const route = atlas.routes.find((item) => item.id === routeId);
   if (!route) return [];
-  const near = nearbyStops(atlas.stops, here, 700, 16).filter((stop) =>
-    stop.routes.includes(routeId),
-  );
+  const stops = (detours.length ? mergeStopsWithDetours(atlas.stops, detours) : atlas.stops) as typeof atlas.stops;
+  const near = nearbyStops(stops, here, 700, 16)
+    .filter((stop) => stop.routes.includes(routeId))
+    .sort((a, b) => {
+      const ta = (a as { temporary?: boolean }).temporary ? 0 : 1;
+      const tb = (b as { temporary?: boolean }).temporary ? 0 : 1;
+      return ta - tb || a.meters - b.meters;
+    });
   const rows: LineDue[] = [];
   for (const stop of near) {
     const pass = departuresAtStop(atlas, timetable, stop, now, active, 16).filter(

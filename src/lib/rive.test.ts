@@ -14,7 +14,7 @@ import { collapseDueByDirection, lineByShortNameOrColor, nearbyLines, nextDueOnL
 import { nearbyStations } from "./bikeshare";
 import { decodePolyline } from "./geo";
 import { headingFromSample } from "./heading";
-import { acceptRiderFix, emptyRiderStore, isCrowdProbeSource } from "./rider";
+import { acceptRiderFix, emptyRiderStore, forgetInAppLocationGrant, isCrowdProbeSource } from "./rider";
 import {
   applyFusedEtaToDue,
   emptyProbeStore,
@@ -28,7 +28,7 @@ import { remainMinutes, watchPulseFromPayload } from "./watch-remain";
 import { applyLivePulse, boardingStopName, livePulseEnd, livePulseFromTransit } from "./live-pulse";
 import { altitudeLiftPx, applyPitch, formatMeters, invertPitch, METRO_DEPTH_M } from "./geo";
 import { mixLabel, planTrajectories, rankByDoorToDoor } from "./trajectory";
-import { buildingHeightMeters, extrudeOffsetPx, parseOverpassBuildings, wallQuads } from "./buildings";
+import { buildingHeightMeters, extrudeOffsetPx, overpassPostBody, parseOverpassBuildings, wallQuads } from "./buildings";
 import { fold, firstStopFromQuery, nearbyStops, pinHereForCity, placeFromStop, searchAtlas, stopHasService } from "./search";
 import { activeServiceIndexes } from "./services";
 import { formatClock, minutesOfDay, parseClock24, prefersHour12 } from "./time";
@@ -38,9 +38,11 @@ import {
   applyDetour,
   applyTripUpdatesToDue,
   hopMinutes,
+  mergeStopsWithDetours,
   overlayWithVehicles,
   parseRealtimePayload,
   samePolyline,
+  skippedStopIds,
   trajectoryAfterRealtime,
 } from "./realtime";
 import { fingerprintFromMeta, shouldFetchZip } from "./update";
@@ -138,15 +140,15 @@ describe("hostile user input", () => {
     assert.match(html, /html\.day|--paper/);
     assert.match(html, /id="refresh"|Actualiser/);
     assert.match(html, /id="fold"/);
-    assert.match(html, /id="clockfmt"/);
-    assert.match(html, /id="clock-os"/);
-    assert.match(html, /id="clock-24"/);
+    assert.match(html, /id="perms"/);
+    assert.doesNotMatch(html, /id="clock-os"/);
+    assert.doesNotMatch(html, /id="clock-24"/);
     assert.match(html, /class="tools"/);
     assert.match(src, /classList\.add\("busy"\)/);
     assert.doesNotMatch(src, /hereBtn\.textContent = t\.myPosition/);
     assert.doesNotMatch(src, /btn\.textContent = "Actualiser"/);
     assert.match(src, /prefersHour12/);
-    assert.match(src, /clockMode/);
+    assert.doesNotMatch(src, /setClockMode/);
     assert.match(src, /strokeStyle/);
     assert.match(html, /sheet-body|sheet\.folded/);
     assert.match(src, /setSheetOpen/);
@@ -175,7 +177,7 @@ describe("hostile user input", () => {
     assert.match(src, /livePulseFromTransit|pulseFromTrip/);
     assert.match(src, /livePulseEnd|broadcastPulse/);
     assert.match(src, /riveLive/);
-    assert.match(src, /input.lang = "fr-CA"/);
+    assert.match(src, /prefersHour12\(\)/);
   });
 
   it("matches accent-folded Québec queries on the real atlas", () => {
@@ -1147,6 +1149,73 @@ describe("GTFS-RT overlay", () => {
     assert.notEqual(applied.minutes, staticMinutes);
     assert.ok(applied.minutes > 0);
   });
+
+  it("applies an official 807 works detour: skips a pole and raises a temporary stop", () => {
+    const { atlas } = loadCity("quebec");
+    const route = atlas.routes.find((item) => item.shortName === "807");
+    assert.ok(route, "Québec atlas must include Métrobus 807");
+    const dir = route.dirs.find((item) => item.line && (item.stops || []).length > 6);
+    assert.ok(dir);
+    const poles = (dir.stops || [])
+      .map((id) => atlas.stops.find((stop) => stop.id === id))
+      .filter((stop): stop is NonNullable<typeof stop> => Boolean(stop));
+    const skipped =
+      poles.find((stop) => /villers|halles|cégep-de-ste-foy|cegep-de-ste-foy|n\.-tremblay/i.test(stop.name)) ||
+      poles[Math.floor(poles.length / 2)];
+    assert.ok(skipped);
+    assert.ok((skipped.routes || []).includes(route.id));
+    const otherDir = route.dirs.find((item) => item.line && item.line !== dir.line);
+    const alt = otherDir?.line;
+    assert.ok(alt);
+    const temp = {
+      id: "tmp-807-saint-florent",
+      name: "Saint-Florent (temporaire)",
+      lon: skipped.lon + 0.0012,
+      lat: skipped.lat - 0.0008,
+      routeId: route.id,
+    };
+    assert.equal(parseRealtimePayload(null).detours.length, 0);
+    assert.equal(parseRealtimePayload({}).detours.length, 0);
+    const parsed = parseRealtimePayload({
+      detours: [
+        {
+          routeId: route.id,
+          shape: alt,
+          skipStopIds: [skipped.id],
+          extraMinutes: 4,
+          tempStops: [temp, { id: "bad", name: "nul", lon: 0, lat: 0 }],
+        },
+      ],
+    });
+    assert.equal(parsed.detours.length, 1);
+    assert.ok(parsed.detours[0]?.tempStops?.some((row) => row.id === temp.id));
+    assert.ok(!(parsed.detours[0]?.tempStops || []).some((row) => row.id === "bad"));
+    assert.ok(skippedStopIds(parsed.detours, route.id).has(skipped.id));
+    const merged = mergeStopsWithDetours(atlas.stops, parsed.detours);
+    const closed = merged.find((stop) => stop.id === skipped.id);
+    assert.ok(!closed || !closed.routes.includes(route.id));
+    const added = merged.find((stop) => stop.id === temp.id);
+    assert.ok(added);
+    assert.ok(Number.isFinite(added.lon) && Number.isFinite(added.lat));
+    assert.ok(added.routes.includes(route.id));
+    assert.equal(added.temporary, true);
+    const applied = applyDetour({
+      staticEncoded: dir.line,
+      hops: dir.hops,
+      stopIds: dir.stops,
+      fromIndex: 0,
+      toIndex: Math.min(6, dir.hops.length),
+      detour: parsed.detours[0]!,
+    });
+    assert.equal(samePolyline(applied.line, trajectoryAfterRealtime(dir.line, {})), false);
+    assert.notEqual(applied.minutes, hopMinutes(dir.hops, 0, Math.min(6, dir.hops.length)));
+    const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
+    assert.match(src, /function liveStops/);
+    assert.match(src, /function mergeStopsWithDetours/);
+    assert.match(src, /tempStops/);
+    assert.match(src, /temporaire/);
+    assert.match(src, /applyDetour/);
+  });
 });
 
 describe("clock format", () => {
@@ -1154,11 +1223,12 @@ describe("clock format", () => {
     assert.equal(formatClock(0), "00:00");
     assert.equal(formatClock(960), "16:00");
     assert.equal(formatClock(75), "01:15");
-    assert.equal(formatClock(0, true), "00:00");
-    assert.equal(formatClock(960, true), "16:00");
+    assert.equal(formatClock(0, true), "12:00 AM");
+    assert.equal(formatClock(960, true), "4:00 PM");
     assert.equal(typeof prefersHour12(), "boolean");
     assert.equal(prefersHour12("fr-CA"), false);
     assert.equal(parseClock24("16:00"), 960);
+    assert.equal(parseClock24("4:00 PM"), 960);
     assert.equal(parseClock24("9:05"), 545);
     assert.equal(parseClock24("24:00"), null);
     assert.equal(parseClock24("nope"), null);
@@ -1658,9 +1728,41 @@ describe("2.5D buildings", () => {
       -3,
     );
     assert.equal(quads.length, 2);
+    const ground = applyPitch(200, 500, 400, 800, 0.7, 0, 15);
+    const roof = applyPitch(200, 500, 400, 800, 0.7, parsed[0].heightM, 15);
+    assert.ok(roof.y < ground.y);
+    assert.ok(Math.abs(ground.y - roof.y) > 2);
+    const house = Math.abs(altitudeLiftPx(10, 16.2, 0.7));
+    const tower = Math.abs(altitudeLiftPx(80, 16.2, 0.7));
+    assert.ok(house > 6 && house < 40);
+    assert.ok(tower > house && tower < 120);
+    assert.match(overpassPostBody("[out:json];out;"), /^data=/);
     const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
     assert.match(src, /drawBuildings/);
-    assert.match(src, /overpassQuery/);
+    assert.match(src, /overpassPostBody/);
+    assert.match(src, /top\[i \+ 1\]/);
+  });
+});
+
+describe("permission reset", () => {
+  it("forgets an in-app GPS grant and re-asks on the shipped button", async () => {
+    let store = emptyRiderStore();
+    store = acceptRiderFix(store, { lon: -71.21, lat: 46.81, at: 1000, source: "gps" }, 1000);
+    assert.equal(store.here?.source, "gps");
+    store = forgetInAppLocationGrant(store);
+    assert.equal(store.here, null);
+    store = acceptRiderFix(store, { lon: -71.21, lat: 46.81, at: 2000, source: "map" }, 2000);
+    const kept = forgetInAppLocationGrant(store);
+    assert.equal(kept.here?.source, "map");
+    const shipped = await import("../../public/Transit/rive-kit.js");
+    assert.equal(shipped.forgetInAppLocationGrant({ here: { lon: 1, lat: 2, at: 1, source: "gps" } }).here, null);
+    const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
+    const html = readFileSync(join(process.cwd(), "public", "Transit", "index.html"), "utf8");
+    assert.match(html, /id="perms"/);
+    assert.match(src, /function resetPermissions/);
+    assert.match(src, /clearWatch/);
+    assert.match(src, /forgetInAppLocationGrant/);
+    assert.match(src, /askHeadingPermission|requestPermission/);
   });
 });
 
