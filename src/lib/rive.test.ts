@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import type { Atlas, AtlasStop, Timetable } from "./atlas/types";
 import { parseTransitQuery } from "./assist";
 import { feedUrl, mergeStations } from "./bikeshare";
+import { feedUrl as shippedFeedUrl } from "../../public/Transit/bikes.js";
 import { daytimeClock, eveningClock } from "./clock";
 import { pickLocale } from "./i18n";
 import { connectorWalk, departuresAtStop, planTrip } from "./planner";
@@ -312,6 +313,37 @@ describe("bikeshare GBFS", () => {
     const near = nearbyStations(stations, { lon: -71.21, lat: 46.81 }, 500, "any", 6);
     assert.ok(near.length >= 1);
     assert.ok(Number.isFinite(near[0].bikes) && Number.isFinite(near[0].docks));
+  });
+
+  it("reads BIXI language-keyed discovery from the shipped atlas helper", () => {
+    const discovery = {
+      data: {
+        fr: {
+          feeds: [
+            { name: "station_information", url: "https://gbfs.velobixi.com/gbfs/fr/station_information.json" },
+            { name: "station_status", url: "https://gbfs.velobixi.com/gbfs/fr/station_status.json" },
+          ],
+        },
+        en: {
+          feeds: [
+            { name: "station_information", url: "https://gbfs.velobixi.com/gbfs/en/station_information.json" },
+            { name: "station_status", url: "https://gbfs.velobixi.com/gbfs/en/station_status.json" },
+          ],
+        },
+      },
+    };
+    assert.equal(shippedFeedUrl({}, "station_status"), null);
+    assert.equal(
+      shippedFeedUrl(discovery, "station_information"),
+      "https://gbfs.velobixi.com/gbfs/fr/station_information.json",
+    );
+    assert.equal(shippedFeedUrl(discovery, "station_status"), "https://gbfs.velobixi.com/gbfs/fr/station_status.json");
+    assert.equal(feedUrl(discovery, "station_status"), shippedFeedUrl(discovery, "station_status"));
+    const src = readFileSync(join(process.cwd(), "public", "Transit", "bikes.js"), "utf8");
+    assert.match(src, /\["fr", "en"\]/);
+    const app = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
+    assert.match(app, /gesturechange|beginGesture/);
+    assert.match(app, /mapBusy/);
   });
 });
 
