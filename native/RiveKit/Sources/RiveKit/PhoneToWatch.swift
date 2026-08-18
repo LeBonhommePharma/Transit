@@ -23,6 +23,14 @@ public final class PhoneToWatch: NSObject, WCSessionDelegate, @unchecked Sendabl
     }
   }
 
+  public func clear() {
+    guard WCSession.default.activationState == .activated else { return }
+    try? WCSession.default.updateApplicationContext(["live": Data(), "end": true])
+    if WCSession.default.isReachable {
+      WCSession.default.sendMessage(["end": true], replyHandler: nil, errorHandler: nil)
+    }
+  }
+
   public func session(
     _ session: WCSession,
     activationDidCompleteWith activationState: WCSessionActivationState,

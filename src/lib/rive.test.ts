@@ -23,11 +23,13 @@ import {
   validateProbe,
 } from "./probe";
 import { remainMinutes, watchPulseFromPayload } from "./watch-remain";
+import { applyLivePulse, livePulseEnd, livePulseFromTransit } from "./live-pulse";
 import { mixLabel, planTrajectories, rankByDoorToDoor } from "./trajectory";
 import { buildingHeightMeters, extrudeOffsetPx, parseOverpassBuildings, wallQuads } from "./buildings";
 import { fold, firstStopFromQuery, nearbyStops, pinHereForCity, placeFromStop, searchAtlas, stopHasService } from "./search";
 import { activeServiceIndexes } from "./services";
-import { formatClock, minutesOfDay, prefersHour12 } from "./time";
+import { formatClock, minutesOfDay, parseClock24, prefersHour12 } from "./time";
+import { isBlueFamily, lineStrokeColor } from "./line-tone";
 import { pickPois } from "./poi";
 import {
   applyDetour,
@@ -162,10 +164,14 @@ describe("hostile user input", () => {
     assert.match(src, /fuseRouteProbes/);
     assert.match(html, /id="heading"/);
     assert.match(html, /id="trips"/);
-    assert.match(html, /lang="fr-CA"/);
+    assert.match(html, /Heure 24 h|placeholder="16:00"/);
     assert.match(src, /Démarrer/);
     assert.match(src, /annotateTimeGaps/);
     assert.match(src, /parseOverpassBuildings|buildings/);
+    assert.match(src, /livePulseFromTransit|pulseFromTrip/);
+    assert.match(src, /livePulseEnd|broadcastPulse/);
+    assert.match(src, /riveLive/);
+    assert.match(src, /input.lang = "fr-CA"/);
   });
 
   it("matches accent-folded Québec queries on the real atlas", () => {
@@ -1098,10 +1104,33 @@ describe("clock format", () => {
     assert.equal(formatClock(0), "00:00");
     assert.equal(formatClock(960), "16:00");
     assert.equal(formatClock(75), "01:15");
-    assert.equal(formatClock(0, true), "12:00 AM");
-    assert.equal(formatClock(960, true), "4:00 PM");
+    assert.equal(formatClock(0, true), "00:00");
+    assert.equal(formatClock(960, true), "16:00");
     assert.equal(typeof prefersHour12(), "boolean");
     assert.equal(prefersHour12("fr-CA"), false);
+    assert.equal(parseClock24("16:00"), 960);
+    assert.equal(parseClock24("9:05"), 545);
+    assert.equal(parseClock24("24:00"), null);
+    assert.equal(parseClock24("nope"), null);
+  });
+});
+
+describe("line tone", () => {
+  it("keeps official non-blue colors and splits shared blues by line number", () => {
+    const orange = lineStrokeColor({ color: "#E35205", shortName: "290", type: 3 });
+    assert.equal(orange.toLowerCase(), "#e35205");
+    assert.equal(isBlueFamily("#E35205"), false);
+    const a = lineStrokeColor({ color: "#003DA5", shortName: "11", type: 3 });
+    const b = lineStrokeColor({ color: "#003DA5", shortName: "133", type: 3 });
+    const metro = lineStrokeColor({ color: "#003DA5", shortName: "1", type: 1 });
+    assert.notEqual(a.toLowerCase(), b.toLowerCase());
+    assert.notEqual(a.toLowerCase(), metro.toLowerCase());
+    assert.match(a, /^#[0-9a-f]{6}$/i);
+    const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
+    assert.match(src, /lineStrokeColor\(route\)/);
+    const html = readFileSync(join(process.cwd(), "public", "Transit", "index.html"), "utf8");
+    assert.doesNotMatch(html, /type="time"/);
+    assert.match(html, /id="at"/);
   });
 });
 
@@ -1352,6 +1381,78 @@ describe("watch remain", () => {
     assert.equal(overlay[0].wait, 15);
     assert.equal(overlay[0].clocks[0], "13:25");
     assert.equal(shipped.isCrowdProbeSource("map"), false);
+    const pulse = shipped.livePulseFromTransit(
+      { city: "quebec", stop: "D'Youville", route: "801", color: "#0071e3", departs: [960], clocks: ["16:00"] },
+      950,
+    );
+    assert.equal(pulse.action, "start");
+    assert.equal(pulse.remain, shipped.remainMinutes([960], 950));
+    assert.equal(shipped.livePulseFromTransit({ stop: "x", departs: [960] }, 950).action, "end");
+    const mem = new Map();
+    const store = {
+      getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+      setItem: (k, v) => mem.set(k, v),
+      removeItem: (k) => mem.delete(k),
+    };
+    const wrote = shipped.applyLivePulse(pulse, store);
+    assert.ok(wrote.live && wrote.live.route === "801");
+    assert.ok(store.getItem("rive.live"));
+    const ended = shipped.applyLivePulse(shipped.livePulseEnd(), store);
+    assert.equal(ended.live, null);
+    assert.equal(store.getItem("rive.live"), null);
+  });
+});
+
+describe("live pulse start and stop", () => {
+  it("starts from a transit trip and ends without inventing a route", () => {
+    const store = {
+      data: {},
+      getItem(k) {
+        return this.data[k] ?? null;
+      },
+      setItem(k, v) {
+        this.data[k] = v;
+      },
+      removeItem(k) {
+        delete this.data[k];
+      },
+    };
+    assert.equal(livePulseFromTransit(null, 950).action, "end");
+    assert.equal(livePulseFromTransit({ stop: "Youville", departs: [960] }, 950).action, "end");
+    const trip = {
+      city: "quebec",
+      stop: "D'Youville",
+      route: "801",
+      color: "#0071e3",
+      headsign: "Beauport",
+      clocks: ["16:00", "16:08"],
+      departs: [960, 968],
+    };
+    const start = livePulseFromTransit(trip, 950);
+    assert.equal(start.action, "start");
+    if (start.action !== "start") throw new Error("expected start");
+    assert.equal(start.remain, remainMinutes(trip.departs, 950));
+    assert.ok(start.remain >= 0);
+    assert.equal(start.route, "801");
+    const applied = applyLivePulse(start, store);
+    assert.ok(applied.live);
+    assert.match(applied.href, /watch\.html\?/);
+    assert.ok(JSON.parse(store.getItem("rive.live") || "{}").route === "801");
+    const idle = applyLivePulse(livePulseEnd(), store);
+    assert.equal(idle.live, null);
+    assert.equal(store.getItem("rive.live"), null);
+    assert.equal(livePulseFromTransit({ route: "801", departs: [900] }, 950).action, "end");
+    const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
+    assert.match(src, /function startTrip/);
+    assert.match(src, /pulseFromTrip\(trip\)/);
+    assert.match(src, /function stopTrip/);
+    assert.match(src, /livePulseEnd\(\)/);
+    assert.match(src, /pulseFromSelectedLine/);
+    const pusher = readFileSync(join(process.cwd(), "ios", "Rive", "LiveDeparturePusher.swift"), "utf8");
+    assert.match(pusher, /static func end/);
+    const shell = readFileSync(join(process.cwd(), "ios", "RiveApp", "RiveApp.swift"), "utf8");
+    assert.match(shell, /riveLive/);
+    assert.match(shell, /LiveDeparturePusher.apply/);
   });
 });
 

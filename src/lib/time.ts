@@ -64,15 +64,23 @@ export function prefersHour12(locale?: string): boolean {
   }
 }
 
-export function formatClock(minutes: number, hour12 = false): string {
+export function formatClock(minutes: number, _hour12 = false): string {
   const wrap = ((minutes % 1440) + 1440) % 1440;
   const h = Math.floor(wrap / 60);
   const m = wrap % 60;
-  const mm = String(m).padStart(2, "0");
-  if (!hour12) return `${String(h).padStart(2, "0")}:${mm}`;
-  const suffix = h >= 12 ? "PM" : "AM";
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${mm} ${suffix}`;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** Parse a 24h field. Accepts 16:00, 1600, 16h00. Garbage → null. */
+export function parseClock24(value: unknown): number | null {
+  if (value == null) return null;
+  const raw = String(value).trim();
+  const m = raw.match(/^(\d{1,2})(?:[:hH.\s]?(\d{2}))?$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2] || 0);
+  if (!Number.isFinite(h) || !Number.isFinite(min) || h > 23 || min > 59) return null;
+  return h * 60 + min;
 }
 
 export function formatRelative(minutesFromNow: number): string {

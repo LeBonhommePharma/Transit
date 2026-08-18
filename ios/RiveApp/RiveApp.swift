@@ -19,13 +19,37 @@ struct RiveApp: App {
 struct AtlasWebView: UIViewRepresentable {
   let url: URL
 
+  func makeCoordinator() -> Coordinator {
+    Coordinator()
+  }
+
   func makeUIView(context: Context) -> WKWebView {
-    let view = WKWebView()
+    let content = WKWebViewConfiguration()
+    content.userContentController.add(context.coordinator, name: "riveLive")
+    let view = WKWebView(frame: .zero, configuration: content)
     view.load(URLRequest(url: url))
     return view
   }
 
   func updateUIView(_ uiView: WKWebView, context: Context) {}
+
+  final class Coordinator: NSObject, WKScriptMessageHandler {
+    func userContentController(
+      _ userContentController: WKUserContentController,
+      didReceive message: WKScriptMessage
+    ) {
+      guard message.name == "riveLive" else { return }
+      let body: [String: Any]
+      if let dict = message.body as? [String: Any] {
+        body = dict
+      } else {
+        body = ["action": "end"]
+      }
+      #if canImport(ActivityKit)
+      LiveDeparturePusher.apply(command: body)
+      #endif
+    }
+  }
 }
 #else
 struct AtlasWebView: View {
