@@ -33,10 +33,10 @@ export function nearbyLines(
   atlas: Atlas,
   here: { lon: number; lat: number },
   dest?: { lon: number; lat: number } | null,
-  radiusM = 700,
+  radiusM = 1200,
 ): NearbyLine[] {
   if (!isFinitePoint(here)) return [];
-  const near = nearbyStops(atlas.stops, here, radiusM, 16);
+  const near = nearbyStops(atlas.stops, here, radiusM, 24);
   if (near.length === 0) return [];
   const destRouteIds = new Set<string>();
   if (dest && isFinitePoint(dest)) {

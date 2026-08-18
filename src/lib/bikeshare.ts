@@ -66,14 +66,18 @@ export function mergeStations(
     const name = typeof row.name === "string" ? row.name : String(row.name ?? id);
     const lat = Number(row.lat);
     const lon = Number(row.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) continue;
+    const bikes = Number(pos?.num_bikes_available ?? 0);
+    const docks = Number(pos?.num_docks_available ?? 0);
+    if (!Number.isFinite(bikes) || !Number.isFinite(docks)) continue;
+    if (bikes < 1 && docks < 1) continue;
     out.push({
       id,
       name,
       lat,
       lon,
-      bikes: Number(pos?.num_bikes_available ?? 0),
-      docks: Number(pos?.num_docks_available ?? 0),
+      bikes,
+      docks,
       system,
     });
   }

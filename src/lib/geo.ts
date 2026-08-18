@@ -13,25 +13,60 @@ export function haversineMeters(
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
 }
 
-/** Apple-style pitch: 0 is nadir, 1 is ~55°. */
+/** Typical STM tunnel depth, meters below street. */
+export const METRO_DEPTH_M = -24;
+
+/** Screen-Y lift for a height in meters. Roofs go up; tunnels go down. */
+export function altitudeLiftPx(altM: number, zoom: number, pitch: number, scale = 1): number {
+  if (!Number.isFinite(altM) || altM === 0 || !Number.isFinite(zoom)) return 0;
+  const p = Number.isFinite(pitch) ? Math.min(1, Math.max(0, pitch)) : 0;
+  const pxPerMeter = Math.max(0.18, 2 ** (zoom - 15) * 1.15);
+  const rise = 0.5 + p * 2.6;
+  const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  return -altM * pxPerMeter * rise * s;
+}
+
+/** Apple-style pitch: 0 is nadir, 1 is ~55°. Optional altitude in meters. */
 export function applyPitch(
   px: number,
   py: number,
   w: number,
   h: number,
   pitch: number,
+  altM = 0,
+  zoom = 15,
 ): { x: number; y: number; scale: number } {
-  if (!Number.isFinite(pitch) || pitch <= 0) return { x: px, y: py, scale: 1 };
+  let x = px;
+  let y = py;
+  let scale = 1;
+  const p = Number.isFinite(pitch) ? Math.min(1, Math.max(0, pitch)) : 0;
+  if (p > 0) {
+    const horizon = h * (0.16 + (1 - p) * 0.1);
+    const ground = h * 0.94;
+    const t = (py - horizon) / Math.max(1, ground - horizon);
+    scale = 0.52 + Math.max(0, Math.min(1.4, t)) * (0.48 + p * 0.4);
+    x = w / 2 + (px - w / 2) * scale;
+    y = horizon + (py - horizon) * (1 - p * 0.44);
+  }
+  return { x, y: y + altitudeLiftPx(altM, zoom, p, scale), scale };
+}
+
+/** Inverse of `applyPitch` at street level (no altitude). */
+export function invertPitch(
+  sx: number,
+  sy: number,
+  w: number,
+  h: number,
+  pitch: number,
+): { x: number; y: number } {
+  if (!Number.isFinite(pitch) || pitch <= 0) return { x: sx, y: sy };
   const p = Math.min(1, Math.max(0, pitch));
   const horizon = h * (0.16 + (1 - p) * 0.1);
   const ground = h * 0.94;
+  const py = horizon + (sy - horizon) / Math.max(0.2, 1 - p * 0.44);
   const t = (py - horizon) / Math.max(1, ground - horizon);
   const persp = 0.52 + Math.max(0, Math.min(1.4, t)) * (0.48 + p * 0.4);
-  return {
-    x: w / 2 + (px - w / 2) * persp,
-    y: horizon + (py - horizon) * (1 - p * 0.44),
-    scale: persp,
-  };
+  return { x: w / 2 + (sx - w / 2) / Math.max(0.2, persp), y: py };
 }
 
 export function walkMinutes(meters: number): number {

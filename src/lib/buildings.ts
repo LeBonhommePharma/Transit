@@ -74,11 +74,15 @@ export function parseOverpassBuildings(raw: unknown, cap = BUILDING_CAP): Buildi
   return out;
 }
 
-/** Screen slip for a 2.5D roof. Light from the north-west. */
-export function extrudeOffsetPx(heightM: number, zoom: number): { dx: number; dy: number } {
+/** Screen slip for a 2.5D roof. Light from the north-west; pitch stands the wall up. */
+export function extrudeOffsetPx(heightM: number, zoom: number, pitch = 0): { dx: number; dy: number } {
   if (!Number.isFinite(heightM) || heightM <= 0 || !Number.isFinite(zoom)) return { dx: 0, dy: 0 };
+  const p = Number.isFinite(pitch) ? Math.min(1, Math.max(0, pitch)) : 0;
   const pxPerMeter = Math.max(0.15, 2 ** (zoom - 15) * 0.85);
-  return { dx: heightM * pxPerMeter * 0.32, dy: -heightM * pxPerMeter * 0.58 };
+  return {
+    dx: heightM * pxPerMeter * (0.32 - p * 0.22),
+    dy: -heightM * pxPerMeter * (0.58 + p * 1.7),
+  };
 }
 
 export function wallQuads(

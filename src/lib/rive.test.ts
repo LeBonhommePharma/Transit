@@ -10,6 +10,7 @@ import { pickLocale } from "./i18n";
 import { connectorWalk, departuresAtStop, planTrip } from "./planner";
 import { resolveSearchAction } from "./search-submit";
 import { collapseDueByDirection, lineByShortNameOrColor, nearbyLines, nextDueOnLine } from "./lines";
+import { nearbyStations } from "./bikeshare";
 import { decodePolyline } from "./geo";
 import { headingFromSample } from "./heading";
 import { acceptRiderFix, emptyRiderStore, isCrowdProbeSource } from "./rider";
@@ -24,7 +25,7 @@ import {
 } from "./probe";
 import { remainMinutes, watchPulseFromPayload } from "./watch-remain";
 import { applyLivePulse, boardingStopName, livePulseEnd, livePulseFromTransit } from "./live-pulse";
-import { applyPitch, formatMeters } from "./geo";
+import { altitudeLiftPx, applyPitch, formatMeters, invertPitch, METRO_DEPTH_M } from "./geo";
 import { mixLabel, planTrajectories, rankByDoorToDoor } from "./trajectory";
 import { buildingHeightMeters, extrudeOffsetPx, parseOverpassBuildings, wallQuads } from "./buildings";
 import { fold, firstStopFromQuery, nearbyStops, pinHereForCity, placeFromStop, searchAtlas, stopHasService } from "./search";
@@ -296,6 +297,21 @@ describe("bikeshare GBFS", () => {
     assert.equal(stations[0]?.system, "avelo");
     assert.equal(stations[0]?.bikes, 4);
     assert.equal(stations[0]?.name.includes("Youville"), true);
+    const empty = mergeStations(
+      { data: { stations: [{ station_id: "z", name: "Vide", lat: 46.81, lon: -71.21 }] } },
+      { data: { stations: [{ station_id: "z", num_bikes_available: 0, num_docks_available: 0 }] } },
+      "avelo",
+    );
+    assert.deepEqual(empty, []);
+    const origin = mergeStations(
+      { data: { stations: [{ station_id: "o", name: "Nul", lat: 0, lon: 0 }] } },
+      { data: { stations: [{ station_id: "o", num_bikes_available: 3, num_docks_available: 2 }] } },
+      "bixi",
+    );
+    assert.deepEqual(origin, []);
+    const near = nearbyStations(stations, { lon: -71.21, lat: 46.81 }, 500, "any", 6);
+    assert.ok(near.length >= 1);
+    assert.ok(Number.isFinite(near[0].bikes) && Number.isFinite(near[0].docks));
   });
 });
 
@@ -1214,6 +1230,32 @@ describe("destination options are time-shortest first", () => {
   });
 });
 
+describe("nearby lines follow here", () => {
+  it("changes the line set from downtown to Finistère / de la Paix", () => {
+    const { atlas } = loadCity("quebec");
+    const downtown = { lon: atlas.meta.center[0], lat: atlas.meta.center[1] };
+    const paix = firstStopHit(atlas, "du Finistere");
+    const a = nearbyLines(atlas, downtown);
+    const b = nearbyLines(atlas, paix);
+    assert.ok(a.length > 0 && b.length > 0);
+    assert.ok(a.every((row) => row.shortName));
+    assert.ok(b.every((row) => row.shortName));
+    const setA = new Set(a.map((row) => row.routeId));
+    const setB = new Set(b.map((row) => row.routeId));
+    assert.notEqual([...setA].sort().join(","), [...setB].sort().join(","));
+    assert.ok(
+      b.some((row) => (paix.routes || []).includes(row.routeId)),
+      "Finistère here must list a line that serves that pole",
+    );
+    const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
+    assert.match(src, /renderLines\(\)/);
+    assert.match(src, /renderBikes\(\)/);
+    const html = readFileSync(join(process.cwd(), "public", "Transit", "index.html"), "utf8");
+    assert.match(html, /id="trips"/);
+    assert.match(html, /id="bikes"/);
+  });
+});
+
 describe("heading", () => {
   it("normalizes bearings and stays empty on garbage", () => {
     const north = headingFromSample(0);
@@ -1481,6 +1523,16 @@ describe("3D pitch and Laval 13 catchment", () => {
     const tilted = applyPitch(200, 400, 400, 800, 0.62);
     assert.notEqual(tilted.y, 400);
     assert.ok(tilted.scale > 0);
+    const back = invertPitch(tilted.x, tilted.y, 400, 800, 0.62);
+    assert.ok(Math.abs(back.x - 200) < 0.8);
+    assert.ok(Math.abs(back.y - 400) < 0.8);
+    const ground = applyPitch(200, 500, 400, 800, 0.7, 0, 15);
+    const roof = applyPitch(200, 500, 400, 800, 0.7, 40, 15);
+    const tunnel = applyPitch(200, 500, 400, 800, 0.7, METRO_DEPTH_M, 15);
+    assert.ok(roof.y < ground.y);
+    assert.ok(tunnel.y > ground.y);
+    assert.equal(altitudeLiftPx(0, 15, 0.7), 0);
+    assert.equal(altitudeLiftPx(Number.NaN, 15, 1), 0);
     const { atlas } = loadCity("quebec");
     const dest = firstStopHit(atlas, "Universite Laval");
     const near = nearbyStops(atlas.stops, dest, 1200, 40);
@@ -1488,6 +1540,13 @@ describe("3D pitch and Laval 13 catchment", () => {
       near.some((stop) => (stop.routes || []).includes("1-13")),
       "Université Laval catchment must include RTC 13 (Peps/Foresterie)",
     );
+    const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
+    assert.match(src, /METRO_DEPTH_M/);
+    assert.match(src, /function requestDraw/);
+    assert.match(src, /function zoomAt/);
+    assert.match(src, /function queueLabel/);
+    assert.match(src, /function flushLabels/);
+    assert.match(src, /coordsFor/);
   });
 });
 
