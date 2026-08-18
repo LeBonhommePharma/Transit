@@ -48,10 +48,17 @@ export function weekdayMon0(date: Date): number {
 
 export function prefersHour12(locale?: string): boolean {
   try {
-    const opts = new Intl.DateTimeFormat(locale || undefined, { hour: "numeric" }).resolvedOptions();
-    if (opts.hourCycle === "h11" || opts.hourCycle === "h12") return true;
-    if (opts.hourCycle === "h23" || opts.hourCycle === "h24") return false;
-    return Boolean(opts.hour12);
+    // This atlas is America/Montreal. A US-English browser locale reports h12
+    // even when macOS is 24h. Honour an explicit locale, then Canadian 24h.
+    const candidates = locale ? [locale] : ["fr-CA", "en-CA", undefined];
+    let saw12 = false;
+    for (const loc of candidates) {
+      const opts = new Intl.DateTimeFormat(loc, { hour: "numeric" }).resolvedOptions();
+      if (opts.hourCycle === "h23" || opts.hourCycle === "h24") return false;
+      if (opts.hourCycle === "h11" || opts.hourCycle === "h12") saw12 = true;
+      else if (opts.hour12) saw12 = true;
+    }
+    return saw12;
   } catch {
     return false;
   }

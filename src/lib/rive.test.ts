@@ -24,6 +24,7 @@ import {
 } from "./probe";
 import { remainMinutes, watchPulseFromPayload } from "./watch-remain";
 import { mixLabel, planTrajectories, rankByDoorToDoor } from "./trajectory";
+import { buildingHeightMeters, extrudeOffsetPx, parseOverpassBuildings, wallQuads } from "./buildings";
 import { fold, firstStopFromQuery, nearbyStops, pinHereForCity, placeFromStop, searchAtlas, stopHasService } from "./search";
 import { activeServiceIndexes } from "./services";
 import { formatClock, minutesOfDay, prefersHour12 } from "./time";
@@ -160,6 +161,11 @@ describe("hostile user input", () => {
     assert.match(src, /rankByDoorToDoor/);
     assert.match(src, /fuseRouteProbes/);
     assert.match(html, /id="heading"/);
+    assert.match(html, /id="trips"/);
+    assert.match(html, /lang="fr-CA"/);
+    assert.match(src, /Démarrer/);
+    assert.match(src, /annotateTimeGaps/);
+    assert.match(src, /parseOverpassBuildings|buildings/);
   });
 
   it("matches accent-folded Québec queries on the real atlas", () => {
@@ -1095,6 +1101,7 @@ describe("clock format", () => {
     assert.equal(formatClock(0, true), "12:00 AM");
     assert.equal(formatClock(960, true), "4:00 PM");
     assert.equal(typeof prefersHour12(), "boolean");
+    assert.equal(prefersHour12("fr-CA"), false);
   });
 });
 
@@ -1165,8 +1172,10 @@ describe("destination options are time-shortest first", () => {
       assert.ok(families.size >= 2, `${pair.city} mixes ${[...families].join(",")}`);
       const fastest = Math.min(...options.map((row) => row.minutes));
       assert.equal(options[0].minutes, fastest);
+      assert.equal(options[0].gap, 0);
       for (const row of options) {
         assert.ok(row.minutes >= options[0].minutes);
+        assert.equal(row.gap, row.minutes - fastest);
       }
       const ranked = rankByDoorToDoor(options.slice().reverse());
       assert.equal(ranked[0].minutes, fastest);
@@ -1343,6 +1352,47 @@ describe("watch remain", () => {
     assert.equal(overlay[0].wait, 15);
     assert.equal(overlay[0].clocks[0], "13:25");
     assert.equal(shipped.isCrowdProbeSource("map"), false);
+  });
+});
+
+describe("2.5D buildings", () => {
+  it("parses official OSM heights and stays empty on junk", () => {
+    assert.equal(parseOverpassBuildings(null).length, 0);
+    assert.equal(parseOverpassBuildings({}).length, 0);
+    assert.equal(buildingHeightMeters({ height: "24" }), 24);
+    assert.ok(buildingHeightMeters({ "building:levels": "5" }) > 10);
+    const parsed = parseOverpassBuildings({
+      elements: [
+        {
+          geometry: [
+            { lon: -71.208, lat: 46.813 },
+            { lon: -71.207, lat: 46.813 },
+            { lon: -71.207, lat: 46.814 },
+            { lon: -71.208, lat: 46.814 },
+          ],
+          tags: { building: "yes", "building:levels": "6" },
+        },
+        { geometry: [{ lon: 1, lat: 2 }], tags: {} },
+      ],
+    });
+    assert.equal(parsed.length, 1);
+    assert.ok(parsed[0].heightM > 10);
+    const off = extrudeOffsetPx(parsed[0].heightM, 15);
+    assert.ok(off.dx > 0 && off.dy < 0);
+    assert.deepEqual(extrudeOffsetPx(Number.NaN, 15), { dx: 0, dy: 0 });
+    const quads = wallQuads(
+      [
+        [0, 0],
+        [10, 0],
+        [10, 8],
+      ],
+      2,
+      -3,
+    );
+    assert.equal(quads.length, 2);
+    const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
+    assert.match(src, /drawBuildings/);
+    assert.match(src, /overpassQuery/);
   });
 });
 

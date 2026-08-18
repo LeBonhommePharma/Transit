@@ -129,6 +129,13 @@ export function rankByDoorToDoor<T extends { minutes: number }>(options: T[]): T
   return [...options].sort((a, b) => a.minutes - b.minutes);
 }
 
+/** Minutes slower than the fastest option. Fastest gap is 0. */
+export function annotateTimeGaps<T extends { minutes: number }>(options: T[]): Array<T & { gap: number }> {
+  if (!options.length) return [];
+  const fastest = Math.min(...options.map((row) => row.minutes));
+  return options.map((row) => ({ ...row, gap: row.minutes - fastest }));
+}
+
 export function planTrajectories(
   atlas: Atlas,
   timetable: Timetable,
@@ -138,5 +145,5 @@ export function planTrajectories(
   active: Set<number>,
   bikes: BikeStation[] = [],
 ): TrajectoryOption[] {
-  return rankByDoorToDoor(trajectoryChoices(planTrip(atlas, timetable, from, to, now, active, bikes)));
+  return annotateTimeGaps(rankByDoorToDoor(trajectoryChoices(planTrip(atlas, timetable, from, to, now, active, bikes))));
 }
