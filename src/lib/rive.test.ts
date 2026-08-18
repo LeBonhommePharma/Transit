@@ -15,7 +15,15 @@ import { fold, firstStopFromQuery, nearbyStops, pinHereForCity, placeFromStop, s
 import { activeServiceIndexes } from "./services";
 import { minutesOfDay } from "./time";
 import { pickPois } from "./poi";
-import { applyTripUpdatesToDue, parseRealtimePayload, samePolyline, trajectoryAfterRealtime } from "./realtime";
+import {
+  applyDetour,
+  applyTripUpdatesToDue,
+  hopMinutes,
+  overlayWithVehicles,
+  parseRealtimePayload,
+  samePolyline,
+  trajectoryAfterRealtime,
+} from "./realtime";
 import { fingerprintFromMeta, shouldFetchZip } from "./update";
 
 function loadCity(city: "quebec" | "montreal"): { atlas: Atlas; timetable: Timetable } {
@@ -119,6 +127,8 @@ describe("hostile user input", () => {
     assert.match(src, /async function loadRealtime/);
     assert.match(src, /parseRealtimePayload/);
     assert.match(src, /state\.vehicles = vehicles/);
+    assert.match(src, /applyDetour|state\.detours/);
+    assert.match(src, /overlayWithVehicles|vehiclesOnRoute/);
     assert.match(src, /shouldFetchZip|userDeclared|feedIsStale/);
   });
 
@@ -917,6 +927,60 @@ describe("GTFS-RT overlay", () => {
       const swapped = trajectoryAfterRealtime(encoded, { shape: newShape });
       assert.equal(samePolyline(swapped, frozen), false);
     }
+  });
+
+  it("treats Vehicle Positions as live overlay points on a real atlas route", () => {
+    const { atlas } = loadCity("montreal");
+    const route = atlas.routes.find((item) => item.type === 1 && item.dirs.some((dir) => dir.line));
+    assert.ok(route);
+    const encoded = route.dirs.find((dir) => dir.line)?.line || "";
+    const frozen = trajectoryAfterRealtime(encoded, {});
+    const payload = {
+      entity: [
+        {
+          vehicle: {
+            trip: { route_id: route.id },
+            position: { latitude: 45.508, longitude: -73.561 },
+          },
+        },
+      ],
+    };
+    const parsed = parseRealtimePayload(payload);
+    assert.equal(parsed.vehicles.length, 1);
+    const overlay = overlayWithVehicles(encoded, parsed.vehicles, route.id);
+    assert.equal(samePolyline(overlay, frozen), false);
+    assert.equal(overlay[0][0], parsed.vehicles[0].lon);
+    assert.equal(overlay[0][1], parsed.vehicles[0].lat);
+  });
+
+  it("applies a mandatory detour so both the polyline and the ride minutes change", () => {
+    const { atlas } = loadCity("quebec");
+    const route = atlas.routes.find((item) => item.dirs.some((dir) => dir.line && dir.hops.length > 4 && dir.stops.length > 4));
+    assert.ok(route);
+    const dir = route.dirs.find((item) => item.line && item.hops.length > 4)!;
+    const to = Math.min(5, dir.hops.length);
+    const staticMinutes = hopMinutes(dir.hops, 0, to);
+    const other = atlas.routes.find((item) =>
+      item.id !== route.id && item.dirs.some((d) => d.line && d.line !== dir.line),
+    );
+    const alt = other?.dirs.find((d) => d.line && d.line !== dir.line)?.line;
+    assert.ok(alt);
+    const skipped = dir.stops[2];
+    const parsed = parseRealtimePayload({
+      detours: [{ routeId: route.id, shape: alt, skipStopIds: [skipped], extraMinutes: 3 }],
+    });
+    assert.equal(parsed.detours.length, 1);
+    const applied = applyDetour({
+      staticEncoded: dir.line,
+      hops: dir.hops,
+      stopIds: dir.stops,
+      fromIndex: 0,
+      toIndex: to,
+      detour: parsed.detours[0],
+    });
+    assert.equal(samePolyline(applied.line, trajectoryAfterRealtime(dir.line, {})), false);
+    assert.notEqual(applied.minutes, staticMinutes);
+    assert.ok(applied.minutes > 0);
   });
 });
 

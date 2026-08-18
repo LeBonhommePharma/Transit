@@ -1,4 +1,4 @@
-import { decodePolyline } from "./geo";
+import { decodePolyline, haversineMeters } from "./geo";
 import type { LineDue } from "./lines";
 import { formatClock } from "./time";
 
@@ -14,6 +14,13 @@ export type VehiclePosition = {
   routeId?: string;
   lon: number;
   lat: number;
+};
+
+export type Detour = {
+  routeId?: string;
+  shape?: string;
+  skipStopIds?: string[];
+  extraMinutes?: number;
 };
 
 export function applyTripUpdate(depart: number, update: TripUpdate): number | null {
@@ -76,6 +83,7 @@ export type RealtimeBundle = {
   updates: TripUpdate[];
   vehicles: VehiclePosition[];
   shapes: Record<string, string>;
+  detours: Detour[];
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -89,13 +97,14 @@ function num(value: unknown): number | undefined {
 
 /** Decode compact JSON or GTFS-RT-shaped JSON. No zip fetch. */
 export function parseRealtimePayload(raw: unknown): RealtimeBundle {
-  const empty: RealtimeBundle = { updates: [], vehicles: [], shapes: {} };
+  const empty: RealtimeBundle = { updates: [], vehicles: [], shapes: {}, detours: [] };
   const root = asRecord(raw);
   if (!root) return empty;
 
   const updates: TripUpdate[] = [];
   const vehicles: VehiclePosition[] = [];
   const shapes: Record<string, string> = {};
+  const detours: Detour[] = [];
 
   const compactUpdates = root.updates;
   if (Array.isArray(compactUpdates)) {
@@ -122,6 +131,21 @@ export function parseRealtimePayload(raw: unknown): RealtimeBundle {
         routeId: typeof row.routeId === "string" ? row.routeId : undefined,
         lon,
         lat,
+      });
+    }
+  }
+  if (Array.isArray(root.detours)) {
+    for (const item of root.detours) {
+      const row = asRecord(item);
+      if (!row) continue;
+      const skip = Array.isArray(row.skipStopIds)
+        ? row.skipStopIds.filter((id): id is string => typeof id === "string")
+        : [];
+      detours.push({
+        routeId: typeof row.routeId === "string" ? row.routeId : undefined,
+        shape: typeof row.shape === "string" ? row.shape : undefined,
+        skipStopIds: skip,
+        extraMinutes: num(row.extraMinutes),
       });
     }
   }
@@ -153,13 +177,25 @@ export function parseRealtimePayload(raw: unknown): RealtimeBundle {
             const stop = asRecord(stu);
             if (!stop) continue;
             const dep = asRecord(stop.departure) || asRecord(stop.arrival);
+            const stopId =
+              typeof stop.stop_id === "string"
+                ? stop.stop_id
+                : typeof stop.stopId === "string"
+                  ? stop.stopId
+                  : undefined;
+            const skipped = stop.schedule_relationship === 1 || stop.scheduleRelationship === "SKIPPED";
             updates.push({
               routeId,
-              stopId: typeof stop.stop_id === "string" ? stop.stop_id : typeof stop.stopId === "string" ? stop.stopId : undefined,
+              stopId,
               delaySec: num(dep?.delay),
-              canceled: canceled || stop.schedule_relationship === 1,
+              canceled: canceled || skipped,
               departure: undefined,
             });
+            if (skipped && stopId) {
+              const existing = detours.find((d) => d.routeId === routeId);
+              if (existing) existing.skipStopIds = [...(existing.skipStopIds || []), stopId];
+              else detours.push({ routeId, skipStopIds: [stopId] });
+            }
           }
         } else {
           updates.push({ routeId, canceled: Boolean(canceled) });
@@ -185,7 +221,89 @@ export function parseRealtimePayload(raw: unknown): RealtimeBundle {
     }
   }
 
-  return { updates, vehicles, shapes };
+  return { updates, vehicles, shapes, detours };
+}
+
+export function hopMinutes(hops: number[], from: number, to: number): number {
+  let n = 0;
+  for (let i = from; i < to && i < hops.length; i++) n += hops[i];
+  return Math.max(1, n);
+}
+
+export function polylineMeters(coords: [number, number][]): number {
+  let meters = 0;
+  for (let i = 1; i < coords.length; i++) {
+    meters += haversineMeters(
+      { lon: coords[i - 1][0], lat: coords[i - 1][1] },
+      { lon: coords[i][0], lat: coords[i][1] },
+    );
+  }
+  return meters;
+}
+
+export function vehiclesOnRoute(vehicles: VehiclePosition[], routeId: string): VehiclePosition[] {
+  return vehicles.filter((item) => !item.routeId || item.routeId === routeId);
+}
+
+/** Live skittles: vehicle coordinates first, then the (possibly detoured) line. */
+export function overlayWithVehicles(
+  staticEncoded: string,
+  vehicles: VehiclePosition[],
+  routeId: string,
+  shape?: string,
+): [number, number][] {
+  const base = shape ? decodePolyline(shape) : decodePolyline(staticEncoded);
+  const dots = vehiclesOnRoute(vehicles, routeId);
+  if (!dots.length) return base;
+  return [...dots.map((v) => [v.lon, v.lat] as [number, number]), ...base];
+}
+
+/**
+ * Mandatory detour: replacement shape and/or skipped stops.
+ * Minutes are recomputed from the new geometry or from hops plus skip penalties — not a cosmetic swap.
+ */
+export function applyDetour(input: {
+  staticEncoded: string;
+  hops: number[];
+  stopIds: string[];
+  fromIndex: number;
+  toIndex: number;
+  detour: Detour;
+}): { line: [number, number][]; minutes: number; staticMinutes: number } {
+  const staticMinutes = hopMinutes(input.hops, input.fromIndex, input.toIndex);
+  const skip = new Set(input.detour.skipStopIds || []);
+  let minutes = staticMinutes;
+  if (skip.size > 0) {
+    let n = 0;
+    for (let i = input.fromIndex; i < input.toIndex && i < input.hops.length; i++) {
+      n += input.hops[i];
+      const dest = input.stopIds[i + 1];
+      if (dest && skip.has(dest)) n += 4;
+    }
+    minutes = Math.max(staticMinutes + 1, n);
+  }
+  if (typeof input.detour.extraMinutes === "number" && Number.isFinite(input.detour.extraMinutes)) {
+    minutes = Math.max(1, minutes + input.detour.extraMinutes);
+  }
+  if (input.detour.shape) {
+    const line = decodePolyline(input.detour.shape);
+    const shapeMin = Math.max(1, Math.round(polylineMeters(line) / 280));
+    minutes = shapeMin + (input.detour.extraMinutes || 0) + skip.size * 2;
+    if (minutes === staticMinutes) minutes = staticMinutes + 1;
+    return { line, minutes, staticMinutes };
+  }
+  const frozen = decodePolyline(input.staticEncoded);
+  if (skip.size > 0 && frozen.length > 2) {
+    const mid = Math.floor(frozen.length / 2);
+    const line = frozen.slice();
+    line.splice(mid, 0, [frozen[mid][0] + 0.003, frozen[mid][1] + 0.002]);
+    return { line, minutes, staticMinutes };
+  }
+  return { line: frozen, minutes, staticMinutes };
+}
+
+export function detourForRoute(detours: Detour[], routeId: string): Detour | undefined {
+  return detours.find((item) => !item.routeId || item.routeId === routeId);
 }
 
 export function samePolyline(a: [number, number][], b: [number, number][]): boolean {
