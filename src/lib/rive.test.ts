@@ -120,6 +120,12 @@ describe("hostile user input", () => {
     assert.match(html, /id="refresh"|Actualiser/);
     assert.match(html, /id="fold"/);
     assert.match(html, /id="clockfmt"/);
+    assert.match(html, /id="clock-os"/);
+    assert.match(html, /id="clock-24"/);
+    assert.match(html, /class="tools"/);
+    assert.match(src, /classList\.add\("busy"\)/);
+    assert.doesNotMatch(src, /hereBtn\.textContent = t\.myPosition/);
+    assert.doesNotMatch(src, /btn\.textContent = "Actualiser"/);
     assert.match(src, /prefersHour12/);
     assert.match(src, /clockMode/);
     assert.match(src, /strokeStyle/);
