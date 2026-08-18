@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# CLT has no XCTest / Testing.framework. Real checks are RiveKitCheck.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT/native/RiveKit"
+swift build
+swift run --skip-update RiveKitCheck

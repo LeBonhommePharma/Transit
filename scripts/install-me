@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Personal no-App-Store path for Rive (web + Mac + optional iPhone/Watch).
+# Free Apple Account / Xcode Personal Team only. No $99 program. No store.
+set -u
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+LIVE="https://thebonhomme.com/transit/"
+WATCH="${LIVE}watch.html"
+DIST="$ROOT/dist/Rive.app"
+log() { printf '%s\n' "$*"; }
+
+log "Rive — use every surface without the App Store"
+log "web (zero install): $LIVE"
+log "watch pulse URL:    $WATCH"
+log ""
+
+# 1. Open the live atlas now. This is the product on iPhone, iPad, Mac Safari.
+if [[ -x /usr/bin/open ]]; then
+  /usr/bin/open "$LIVE" && log "opened live atlas in your default browser"
+else
+  log "open(1) missing — visit $LIVE yourself"
+fi
+
+# 2. Drop a double-clickable Mac wrapper in this repo (unsigned, local only).
+mkdir -p "$DIST/Contents/MacOS"
+cat > "$DIST/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key><string>Rive</string>
+  <key>CFBundleIdentifier</key><string>com.thebonhomme.rive.personal</string>
+  <key>CFBundleName</key><string>Rive</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+</dict>
+</plist>
+PLIST
+cat > "$DIST/Contents/MacOS/Rive" <<'EXEC'
+#!/bin/bash
+exec /usr/bin/open "https://thebonhomme.com/transit/"
+EXEC
+chmod +x "$DIST/Contents/MacOS/Rive"
+log "Mac wrapper: $DIST"
+log "  double-click it, or: open \"$DIST\""
+
+# Optional: put the same wrapper in ~/Applications (still unsigned, still yours).
+if mkdir -p "$HOME/Applications" 2>/dev/null; then
+  rm -rf "$HOME/Applications/Rive.app"
+  cp -R "$DIST" "$HOME/Applications/Rive.app"
+  log "also copied to $HOME/Applications/Rive.app"
+fi
+
+# 3. Native kit CLI on this Mac (SPM, no Xcode app required).
+if command -v swift >/dev/null 2>&1; then
+  log ""
+  log "native kit: swift run --package-path \"$ROOT/native/RiveKit\" RiveCLI url"
+  (cd "$ROOT/native/RiveKit" && swift run --skip-update RiveCLI url) || log "RiveCLI run skipped (build failed)"
+else
+  log "swift not on PATH — web URL above is enough"
+fi
+
+# 4. Honest iOS / watchOS attempt. Personal Team USB recipe is always printed.
+log ""
+log "iPhone + Watch (free Apple ID, 7-day re-sign, USB — not the \$99 program):"
+if xcodebuild -version >/dev/null 2>&1; then
+  log "  Xcode is present on this Mac."
+else
+  log "  $(xcodebuild -version 2>&1 | head -1)"
+  log "  Full Xcode is missing. Safari Add to Home Screen works today."
+fi
+log "  Personal Team recipe (when Xcode is installed):"
+log "  1. Plug in your iPhone. Trust this computer."
+log "  2. open $ROOT/native/RiveKit/Package.swift"
+log "  3. iOS app: $ROOT/ios/RiveApp/RiveApp.swift — Watch app: $ROOT/ios/RiveWatch/RiveWatchApp.swift"
+log "  4. Signing & Capabilities → Team → your Personal Team. Bundle ID unique to you."
+log "  5. Product → Destination → your iPhone → Run. Then the Watch destination → Run."
+log "  6. On the phone: Settings → VPN & Device Management → trust the developer cert."
+log "  7. Re-run from Xcode every 7 days. Never the App Store."
+
+log ""
+log "iPhone without Xcode: Safari → Add to Home Screen (PWA, no store)."
+log "Watch without Xcode:  $WATCH (same-origin pulse, no cloned app)."
+log "done."

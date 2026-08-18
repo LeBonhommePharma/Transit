@@ -30,4 +30,16 @@ public struct LiveDeparture: Codable, Hashable, Sendable {
     self.clocks = clocks
     self.updated = updated
   }
+
+  /// Minutes until the published departure, in America/Montreal wall time.
+  public func remainMinutes(
+    at date: Date,
+    timeZone: TimeZone = TimeZone(identifier: "America/Montreal") ?? .current
+  ) -> Int {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone
+    let parts = calendar.dateComponents([.hour, .minute], from: date)
+    let now = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+    return max(0, departMinutes - now)
+  }
 }

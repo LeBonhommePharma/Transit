@@ -1,10 +1,10 @@
 import Foundation
 
-#if canImport(WatchConnectivity)
+#if canImport(WatchConnectivity) && (os(iOS) || os(watchOS))
 import WatchConnectivity
 
 /// iPhone is the brain. The Watch only displays this payload.
-public final class PhoneToWatch: NSObject, WCSessionDelegate, Sendable {
+public final class PhoneToWatch: NSObject, WCSessionDelegate, @unchecked Sendable {
   public static let shared = PhoneToWatch()
 
   private override init() {
@@ -23,7 +23,11 @@ public final class PhoneToWatch: NSObject, WCSessionDelegate, Sendable {
     }
   }
 
-  public func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {}
+  public func session(
+    _ session: WCSession,
+    activationDidCompleteWith activationState: WCSessionActivationState,
+    error: Error?
+  ) {}
 
   #if os(iOS)
   public func sessionDidBecomeInactive(_ session: WCSession) {}

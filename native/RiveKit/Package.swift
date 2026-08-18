@@ -4,14 +4,24 @@ import PackageDescription
 let package = Package(
   name: "RiveKit",
   platforms: [
-    .iOS(.v26),
-    .macOS(.v26),
-    .watchOS(.v26),
+    .iOS(.v17),
+    .macOS(.v14),
+    .watchOS(.v10),
   ],
   products: [
     .library(name: "RiveKit", targets: ["RiveKit"]),
+    .executable(name: "RiveCLI", targets: ["RiveCLI"]),
+    .executable(name: "RiveKitCheck", targets: ["RiveKitCheck"]),
   ],
   targets: [
     .target(name: "RiveKit"),
+    .executableTarget(
+      name: "RiveCLI",
+      dependencies: ["RiveKit"]
+    ),
+    .executableTarget(
+      name: "RiveKitCheck",
+      dependencies: ["RiveKit"]
+    ),
   ]
 )

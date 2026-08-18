@@ -17,33 +17,61 @@ public enum FoundationAssist {
       city = "quebec"
     }
     let kind =
-      folded.contains("vers") || folded.contains("to ") || folded.contains("trajet")
+      folded.contains("vers")
+        || folded.contains("to ")
+        || folded.contains("from ")
+        || folded.contains("trajet")
+        || folded.contains("itineraire")
+        || folded.contains("itinéraire")
+        || folded.contains("itinerary")
       ? "plan" : "schedule"
-    return TransitIntent(city: city, stopQuery: text.trimmingCharacters(in: .whitespaces), kind: kind)
+    return TransitIntent(
+      city: city,
+      stopQuery: text.trimmingCharacters(in: .whitespacesAndNewlines),
+      kind: kind
+    )
   }
 
-  @available(iOS 26.0, macOS 26.0, watchOS 26.0, *)
+  @available(iOS 26.0, macOS 26.0, *)
   public static func understand(_ text: String) async -> TransitIntent {
     #if canImport(FoundationModels)
     do {
       let session = LanguageModelSession(
         instructions: """
           You extract a public-transit lookup for Québec RTC or Montréal STM.
-          Return city as quebec or montreal when named, else omit it.
-          stopQuery is the stop or place to look up. kind is schedule or plan.
-          Never invent times. Never compute a path.
+          Reply with one line: city|kind|query
+          city is quebec or montreal or -
+          kind is schedule or plan
+          query is the stop or place. Never invent times. Never compute a path.
           """
       )
-      let reply = try await session.respond(to: text, generating: TransitIntent.self)
-      if reply.content.stopQuery.isEmpty {
-        return parseLocally(text)
+      let reply = try await session.respond(to: text)
+      if let parsed = parseModelLine(reply.content) {
+        return parsed
       }
-      return reply.content
+      return parseLocally(text)
     } catch {
       return parseLocally(text)
     }
     #else
     return parseLocally(text)
     #endif
+  }
+
+  /// Interprets the `city|kind|query` line the on-device model is asked to return.
+  public static func parseModelLine(_ raw: String) -> TransitIntent? {
+    let parts = raw.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+    guard parts.count == 3 else { return nil }
+    let cityRaw = parts[0].lowercased()
+    let kindRaw = parts[1].lowercased()
+    let query = parts[2]
+    guard !query.isEmpty else { return nil }
+    let city: String?
+    if cityRaw == "quebec" || cityRaw == "québec" { city = "quebec" }
+    else if cityRaw == "montreal" || cityRaw == "montréal" || cityRaw == "mtl" { city = "montreal" }
+    else { city = nil }
+    let kind = (kindRaw == "plan") ? "plan" : "schedule"
+    return TransitIntent(city: city, stopQuery: query, kind: kind)
   }
 }

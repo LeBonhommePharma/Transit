@@ -42,3 +42,11 @@ next-env.d.ts
 
 # raw GTFS cache
 .cache/
+
+# Swift
+.build/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+
+# generated personal wrapper
+/dist/

@@ -13,7 +13,7 @@ public struct WatchPulseView: View {
   public var body: some View {
     let ink = Color(red: 16 / 255, green: 22 / 255, blue: 28 / 255)
     TimelineView(.periodic(from: .now, by: 1)) { context in
-      let remain = max(0, live.departMinutes - minutesOfDay(context.date))
+      let remain = live.remainMinutes(at: context.date)
       ZStack {
         ink.ignoresSafeArea()
         Circle()
@@ -42,11 +42,6 @@ public struct WatchPulseView: View {
         withAnimation(.easeInOut(duration: 0.8)) { beat.toggle() }
       }
     }
-  }
-
-  private func minutesOfDay(_ date: Date) -> Int {
-    let parts = Calendar.current.dateComponents(in: TimeZone(identifier: "America/Montreal")!, from: date)
-    return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
   }
 }
 
