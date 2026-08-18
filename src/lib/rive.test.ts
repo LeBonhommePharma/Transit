@@ -1253,6 +1253,13 @@ describe("nearby lines follow here", () => {
     const html = readFileSync(join(process.cwd(), "public", "Transit", "index.html"), "utf8");
     assert.match(html, /id="trips"/);
     assert.match(html, /id="bikes"/);
+    assert.match(html, /sheet\.tall/);
+    assert.match(src, /function bumpSheet/);
+    assert.match(src, /function minimizeSheet/);
+    assert.match(src, /SHEET_IDLE_MS/);
+    assert.match(src, /Le plus vite/);
+    assert.match(src, /\+\$\{trip\.gap\} min de plus/);
+    assert.match(src, /openPlan\(state\.dest, true\)/);
   });
 });
 
