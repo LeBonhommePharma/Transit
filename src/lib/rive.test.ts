@@ -1326,6 +1326,40 @@ describe("heading", () => {
     assert.ok(fromAlpha);
     assert.equal(fromAlpha.cardinal, "NE");
   });
+
+  it("replaces facing on later official samples and ignores junk on both helpers", async () => {
+    const shipped = await import("../../public/Transit/rive-kit.js");
+    for (const impl of [headingFromSample, shipped.headingFromSample]) {
+      const first = impl(0);
+      const second = impl(90);
+      const third = impl(200);
+      assert.ok(first && second && third);
+      for (const row of [first, second, third]) {
+        assert.ok(row.degrees >= 0 && row.degrees < 360);
+        assert.ok(row.cardinal);
+      }
+      assert.notEqual(second.degrees, first.degrees);
+      assert.notEqual(third.degrees, first.degrees);
+      assert.notEqual(third.degrees, second.degrees);
+      assert.equal(impl(Number.NaN), null);
+      assert.equal(impl(undefined), null);
+      assert.equal(impl(null), null);
+      assert.equal(impl({}), null);
+      assert.equal(impl({ heading: "nope" }), null);
+      assert.equal(impl(-1), null);
+      assert.equal(impl({ heading: -1 }), null);
+    }
+    const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
+    const html = readFileSync(join(process.cwd(), "public", "Transit", "index.html"), "utf8");
+    assert.match(src, /watchPosition/);
+    assert.match(src, /applyHeading\(pos\.coords\)/);
+    assert.match(src, /deviceorientationabsolute/);
+    assert.match(src, /deviceorientation/);
+    assert.match(src, /state\.heading\.degrees/);
+    assert.match(src, /function applyHeading/);
+    assert.match(src, /askHeadingPermission|requestPermission/);
+    assert.match(html, /id="heading"/);
+  });
 });
 
 describe("connected rider location", () => {
