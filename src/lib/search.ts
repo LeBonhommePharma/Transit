@@ -15,7 +15,12 @@ export type SearchHit =
   | { kind: "stop"; stop: AtlasStop; score: number }
   | { kind: "route"; route: AtlasRoute; score: number };
 
-export function searchAtlas(atlas: Atlas, query: string, limit = 8): SearchHit[] {
+export function searchAtlas(
+  atlas: Atlas,
+  query: string,
+  limit = 8,
+  timetable?: Record<string, unknown[]> | null,
+): SearchHit[] {
   const q = fold(query);
   if (q.length < 1) return [];
   const hits: SearchHit[] = [];
@@ -32,6 +37,7 @@ export function searchAtlas(atlas: Atlas, query: string, limit = 8): SearchHit[]
 
   for (const stop of atlas.stops) {
     if (stop.kind === 2) continue;
+    if (!stopHasService(stop, timetable)) continue;
     const name = fold(stop.name);
     const code = fold(stop.code || "");
     const agency = fold(stop.agencyId || "");
@@ -82,16 +88,27 @@ export function pinHereForCity(
   return { lon: center.lon, lat: center.lat, source: "map" };
 }
 
+export function stopHasService(
+  stop: AtlasStop,
+  timetable: Record<string, unknown[]> | null | undefined,
+): boolean {
+  if (!timetable) return true;
+  const ids = [stop.id, ...(stop.children || []), stop.parent].filter(Boolean) as string[];
+  return ids.some((id) => Array.isArray(timetable[id]) && timetable[id].length > 0);
+}
+
 export function nearbyStops(
   stops: AtlasStop[],
   point: { lon: number; lat: number },
   radiusM = 700,
   limit = 14,
+  timetable?: Record<string, unknown[]> | null,
 ): Array<AtlasStop & { meters: number }> {
   if (!isFinitePoint(point)) return [];
   const out: Array<AtlasStop & { meters: number }> = [];
   for (const stop of stops) {
     if (stop.kind === 2) continue;
+    if (!stopHasService(stop, timetable)) continue;
     if (!Number.isFinite(stop.lon) || !Number.isFinite(stop.lat)) continue;
     const meters = haversineMeters(point, { lon: stop.lon, lat: stop.lat });
     if (!Number.isFinite(meters) || meters > radiusM) continue;

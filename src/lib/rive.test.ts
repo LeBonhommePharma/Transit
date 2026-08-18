@@ -11,9 +11,12 @@ import { connectorWalk, departuresAtStop, planTrip } from "./planner";
 import { resolveSearchAction } from "./search-submit";
 import { lineByShortNameOrColor, nearbyLines, nextDueOnLine } from "./lines";
 import { mixLabel, planTrajectories } from "./trajectory";
-import { fold, firstStopFromQuery, nearbyStops, pinHereForCity, placeFromStop, searchAtlas } from "./search";
+import { fold, firstStopFromQuery, nearbyStops, pinHereForCity, placeFromStop, searchAtlas, stopHasService } from "./search";
 import { activeServiceIndexes } from "./services";
 import { minutesOfDay } from "./time";
+import { pickPois } from "./poi";
+import { applyTripUpdatesToDue, samePolyline, trajectoryAfterRealtime } from "./realtime";
+import { fingerprintFromMeta, shouldFetchZip } from "./update";
 
 function loadCity(city: "quebec" | "montreal"): { atlas: Atlas; timetable: Timetable } {
   const root = join(process.cwd(), "public", "data", city);
@@ -96,6 +99,19 @@ describe("hostile user input", () => {
     assert.match(src, /nearbyLines/);
     assert.match(src, /nextDueOnLine/);
     assert.match(src, /pinHereForCity/);
+  });
+
+  it("static atlas declares day/night tokens, refined faces, and a POI hook", () => {
+    const html = readFileSync(join(process.cwd(), "public", "Transit", "index.html"), "utf8");
+    const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
+    assert.match(html, /@font-face/);
+    assert.match(html, /Rive Text|Rive Clock/);
+    assert.match(html, /html\.night|--night|prefers-color-scheme:\s*dark/);
+    assert.match(html, /html\.day|--paper/);
+    assert.match(html, /id="refresh"|Actualiser/);
+    assert.match(src, /pickPois|pois/);
+    assert.match(src, /applyTripUpdatesToDue|trajectoryAfterRealtime/);
+    assert.match(src, /shouldFetchZip|userDeclared|feedIsStale/);
   });
 
   it("matches accent-folded Québec queries on the real atlas", () => {
@@ -751,3 +767,125 @@ describe("planTrip", () => {
     }
   });
 });
+
+describe("dead stops", () => {
+  it("drops Québec stops that have no current timetable service", () => {
+    const { atlas, timetable } = loadCity("quebec");
+    const dead = atlas.stops.find((stop) => !stopHasService(stop, timetable) && stop.kind !== 2);
+    assert.ok(dead, "expected at least one unserved stop in the official feed");
+    const near = nearbyStops(atlas.stops, { lon: dead.lon, lat: dead.lat }, 80, 14, timetable);
+    assert.equal(
+      near.some((stop) => stop.id === dead.id),
+      false,
+    );
+    const hits = searchAtlas(atlas, dead.name, 12, timetable);
+    assert.equal(
+      hits.some((hit) => hit.kind === "stop" && hit.stop.id === dead.id),
+      false,
+    );
+  });
+});
+
+describe("GTFS self-update fingerprint", () => {
+  it("does not request a zip when the fingerprint is unchanged", () => {
+    for (const city of ["quebec", "montreal"] as const) {
+      const { atlas } = loadCity(city);
+      const meta = JSON.parse(
+        readFileSync(join(process.cwd(), "public", "data", city, "meta.json"), "utf8"),
+      ) as { city: string; version: string; updated: string; counts: { routes: number; stops: number } };
+      const local = fingerprintFromMeta(meta, {
+        routeIds: atlas.routes.map((route) => route.id),
+        stopIds: atlas.stops.map((stop) => stop.id),
+      });
+      const remote = { ...local, routeIds: [...(local.routeIds || [])], stopIds: [...(local.stopIds || [])] };
+      assert.equal(shouldFetchZip(local, remote), false);
+    }
+  });
+
+  it("treats a new version or added/removed objects as stale, and honors a user-declared refresh", () => {
+    const { atlas } = loadCity("montreal");
+    const meta = JSON.parse(
+      readFileSync(join(process.cwd(), "public", "data", "montreal", "meta.json"), "utf8"),
+    ) as { city: string; version: string; updated: string; counts: { routes: number; stops: number } };
+    const local = fingerprintFromMeta(meta, {
+      routeIds: atlas.routes.map((route) => route.id),
+      stopIds: atlas.stops.slice(0, 20).map((stop) => stop.id),
+    });
+    assert.equal(shouldFetchZip(local, { ...local, version: `${local.version}-next` }), true);
+    assert.equal(
+      shouldFetchZip(local, {
+        ...local,
+        routeIds: [...(local.routeIds || []), "new-route-id"],
+      }),
+      true,
+    );
+    assert.equal(shouldFetchZip(local, local, { userDeclared: true }), true);
+    assert.equal(shouldFetchZip(local, local, { userDeclared: false }), false);
+  });
+});
+
+describe("GTFS-RT overlay", () => {
+  it("moves next-due with a trip delay and drops a cancellation on a real Montréal line", () => {
+    const clock = daytimeClock();
+    const at = minutesOfDay(clock);
+    const { atlas, timetable } = loadCity("montreal");
+    const here = firstStopHit(atlas, "Berri");
+    const dest = firstStopHit(atlas, "McGill");
+    const line = nearbyLines(atlas, here, dest).find((item) => item.type === 1) || nearbyLines(atlas, here, dest)[0];
+    assert.ok(line);
+    const due = nextDueOnLine(atlas, timetable, here, line.routeId, at, activeServiceIndexes(atlas, clock));
+    assert.ok(due.length > 0);
+    const first = due[0];
+    const delayed = applyTripUpdatesToDue(
+      due,
+      [{ routeId: first.routeId, stopId: first.stopId, delaySec: 180 }],
+      at,
+    );
+    assert.ok(delayed.length > 0);
+    const moved = delayed.find((row) => row.stopId === first.stopId && row.headsign === first.headsign);
+    assert.ok(moved);
+    assert.ok(moved.depart > first.depart);
+    assert.equal(moved.depart - first.depart, 3);
+    const canceled = applyTripUpdatesToDue(due, [{ routeId: first.routeId, stopId: first.stopId, canceled: true }], at);
+    assert.ok(canceled.length < due.length || canceled.every((row) => row.stopId !== first.stopId));
+  });
+
+  it("replaces a frozen ingest shape when a vehicle or new shape is reported", () => {
+    const { atlas } = loadCity("montreal");
+    const route = atlas.routes.find((item) => item.type === 1 && item.dirs.some((dir) => dir.line));
+    assert.ok(route);
+    const encoded = route.dirs.find((dir) => dir.line)?.line || "";
+    assert.ok(encoded.length > 0);
+    const frozen = trajectoryAfterRealtime(encoded, {});
+    const withVehicle = trajectoryAfterRealtime(encoded, {
+      vehicle: { routeId: route.id, lon: -73.5673, lat: 45.5017 },
+    });
+    assert.equal(samePolyline(withVehicle, frozen), false);
+    assert.equal(withVehicle[0][0], -73.5673);
+    const other = atlas.routes.find((item) => item.id !== route.id && item.dirs.some((dir) => dir.line && dir.line !== encoded));
+    const newShape = other?.dirs.find((dir) => dir.line)?.line;
+    if (newShape) {
+      const swapped = trajectoryAfterRealtime(encoded, { shape: newShape });
+      assert.equal(samePolyline(swapped, frozen), false);
+    }
+  });
+});
+
+describe("popularity-weighted POIs", () => {
+  it("keeps at most N points and ranks the popular ones above the obscure ones", () => {
+    const table = JSON.parse(
+      readFileSync(join(process.cwd(), "public", "data", "pois.json"), "utf8"),
+    ) as { budget: number; places: Array<{ id: string; name: string; lon: number; lat: number; popularity: number }> };
+    const picked = pickPois(table.places, 6);
+    assert.ok(picked.length <= 6);
+    assert.ok(picked.length > 0);
+    for (let i = 1; i < picked.length; i++) {
+      assert.ok(picked[i - 1].popularity >= picked[i].popularity);
+    }
+    const ids = new Set(picked.map((poi) => poi.id));
+    assert.equal(ids.has("obscure-qc") || ids.has("obscure-mtl"), false);
+    assert.ok(ids.has("chateau") || ids.has("old-mtl"));
+    assert.deepEqual(pickPois(table.places, 0), []);
+  });
+});
+

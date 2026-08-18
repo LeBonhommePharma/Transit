@@ -6,7 +6,7 @@
  * Secondary feeds prefix every GTFS id so route 11 (RTC) and route 11
  * (STLévis) never collide. Primary feed ids stay unprefixed.
  */
-import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -209,10 +209,17 @@ function simplifyLine(coords, minMeters = 14) {
   return out;
 }
 
+const FORCE = process.argv.includes("--force") || process.env.RIVE_FORCE_INGEST === "1";
+
 function ensureZip(feed) {
   mkdirSync(CACHE, { recursive: true });
   const zipPath = join(CACHE, feed.zip);
   const dir = join(CACHE, feed.slug);
+  if (FORCE) {
+    console.log(`Refreshing ${feed.slug} from official zip…`);
+    rmSync(zipPath, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
   if (!existsSync(zipPath)) {
     console.log(`Downloading ${feed.slug}…`);
     execFileSync("curl", ["-L", "--fail", "--retry", "3", "-o", zipPath, feed.url], {

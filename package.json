@@ -10,6 +10,7 @@
     "lint": "eslint",
     "test": "node --experimental-strip-types --import ./scripts/node-ts-hooks.mjs --test src/lib/*.test.ts",
     "ingest": "node --max-old-space-size=8192 scripts/ingest-gtfs.mjs",
+    "ingest:force": "node --max-old-space-size=8192 scripts/ingest-gtfs.mjs --force",
     "install-me": "bash scripts/install-me"
   },
   "dependencies": {
