@@ -5,8 +5,8 @@ export type BuildingFootprint = {
   heightM: number;
 };
 
-export const BUILDING_ZOOM = 14.2;
-export const BUILDING_CAP = 180;
+export const BUILDING_ZOOM = 13;
+export const BUILDING_CAP = 280;
 
 export function buildingHeightMeters(tags: unknown): number {
   if (!tags || typeof tags !== "object") return 10;

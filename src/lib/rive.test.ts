@@ -24,7 +24,7 @@ import {
 } from "./probe";
 import { remainMinutes, watchPulseFromPayload } from "./watch-remain";
 import { applyLivePulse, boardingStopName, livePulseEnd, livePulseFromTransit } from "./live-pulse";
-import { formatMeters } from "./geo";
+import { applyPitch, formatMeters } from "./geo";
 import { mixLabel, planTrajectories, rankByDoorToDoor } from "./trajectory";
 import { buildingHeightMeters, extrudeOffsetPx, parseOverpassBuildings, wallQuads } from "./buildings";
 import { fold, firstStopFromQuery, nearbyStops, pinHereForCity, placeFromStop, searchAtlas, stopHasService } from "./search";
@@ -169,6 +169,7 @@ describe("hostile user input", () => {
     assert.match(src, /Démarrer/);
     assert.match(src, /annotateTimeGaps/);
     assert.match(src, /parseOverpassBuildings|buildings/);
+    assert.match(src, /camera\.pitch|id="pitch"/);
     assert.match(src, /livePulseFromTransit|pulseFromTrip/);
     assert.match(src, /livePulseEnd|broadcastPulse/);
     assert.match(src, /riveLive/);
@@ -1462,11 +1463,31 @@ describe("live pulse start and stop", () => {
     assert.match(src, /paintMapHud/);
     const html = readFileSync(join(process.cwd(), "public", "Transit", "index.html"), "utf8");
     assert.match(html, /id="map-hud"/);
+    assert.match(html, /id="pitch"/);
+    assert.match(html, /id="geo-ask"/);
     const pusher = readFileSync(join(process.cwd(), "ios", "Rive", "LiveDeparturePusher.swift"), "utf8");
     assert.match(pusher, /static func end/);
     const shell = readFileSync(join(process.cwd(), "ios", "RiveApp", "RiveApp.swift"), "utf8");
     assert.match(shell, /riveLive/);
     assert.match(shell, /LiveDeparturePusher.apply/);
+  });
+});
+
+describe("3D pitch and Laval 13 catchment", () => {
+  it("pitches the camera and keeps a 13 pole in the Laval dest catchment", () => {
+    const flat = applyPitch(200, 400, 400, 800, 0);
+    assert.equal(flat.x, 200);
+    assert.equal(flat.y, 400);
+    const tilted = applyPitch(200, 400, 400, 800, 0.62);
+    assert.notEqual(tilted.y, 400);
+    assert.ok(tilted.scale > 0);
+    const { atlas } = loadCity("quebec");
+    const dest = firstStopHit(atlas, "Universite Laval");
+    const near = nearbyStops(atlas.stops, dest, 1200, 40);
+    assert.ok(
+      near.some((stop) => (stop.routes || []).includes("1-13")),
+      "Université Laval catchment must include RTC 13 (Peps/Foresterie)",
+    );
   });
 });
 

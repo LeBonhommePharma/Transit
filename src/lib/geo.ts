@@ -13,6 +13,27 @@ export function haversineMeters(
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
 }
 
+/** Apple-style pitch: 0 is nadir, 1 is ~55°. */
+export function applyPitch(
+  px: number,
+  py: number,
+  w: number,
+  h: number,
+  pitch: number,
+): { x: number; y: number; scale: number } {
+  if (!Number.isFinite(pitch) || pitch <= 0) return { x: px, y: py, scale: 1 };
+  const p = Math.min(1, Math.max(0, pitch));
+  const horizon = h * (0.16 + (1 - p) * 0.1);
+  const ground = h * 0.94;
+  const t = (py - horizon) / Math.max(1, ground - horizon);
+  const persp = 0.52 + Math.max(0, Math.min(1.4, t)) * (0.48 + p * 0.4);
+  return {
+    x: w / 2 + (px - w / 2) * persp,
+    y: horizon + (py - horizon) * (1 - p * 0.44),
+    scale: persp,
+  };
+}
+
 export function walkMinutes(meters: number): number {
   return Math.max(1, Math.round(meters / 75));
 }
