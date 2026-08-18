@@ -1,0 +1,32 @@
+{
+  "name": "rive",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "node --experimental-strip-types --import ./scripts/node-ts-hooks.mjs --test src/lib/*.test.ts",
+    "ingest": "node --max-old-space-size=8192 scripts/ingest-gtfs.mjs"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
+    "maplibre-gl": "^6.4.0",
+    "motion": "^13.1.0",
+    "next": "16.3.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.1",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

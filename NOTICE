@@ -1,0 +1,33 @@
+Rive
+Copyright 2026 Rive contributors
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file or http://www.apache.org/licenses/LICENSE-2.0
+
+Third-party notices
+-------------------
+Schedule and trajectory records come from official GTFS publications.
+They are not licensed under Apache 2.0.
+
+- Réseau de transport de la Capitale (RTC)
+  https://www.rtcquebec.ca/donnees-ouvertes
+  Application integrating the public information of the Réseau de
+  transport de la Capitale.
+
+- Société de transport de Montréal (STM)
+  https://www.stm.info/fr/a-propos/developpeurs
+  Planned schedules and routes. STM retains its rights in those records.
+
+- àVélo Québec GBFS
+  https://quebec.publicbikesystem.net/customer/gbfs/v3.0/gbfs.json
+  https://aveloquebec.ca/en/open-data/
+
+- BIXI Montréal GBFS
+  https://gbfs.velobixi.com/gbfs/gbfs.json
+  https://bixi.com/en/open-data/
+
+Software this tree may bundle at runtime (each under its own terms):
+- Next.js (MIT)
+- MapLibre GL JS (BSD-3-Clause)
+- Motion (MIT)
+- Phosphor Icons (MIT)

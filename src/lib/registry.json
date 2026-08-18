@@ -1,0 +1,35 @@
+{
+  "catalog": "https://files.mobilitydatabase.org/feeds_v2.csv",
+  "cities": [
+    {
+      "id": "quebec",
+      "name": "Québec",
+      "timezone": "America/Montreal",
+      "center": [-71.2082, 46.8131],
+      "zoom": 12.4,
+      "gtfs": {
+        "url": "https://cdn.rtcquebec.ca/Site_Internet/DonneesOuvertes/googletransit.zip",
+        "attribution": "Informations publiques du Réseau de transport de la Capitale."
+      },
+      "bikes": {
+        "label": "àVélo",
+        "gbfs": "https://quebec.publicbikesystem.net/customer/gbfs/v3.0/gbfs.json"
+      }
+    },
+    {
+      "id": "montreal",
+      "name": "Montréal",
+      "timezone": "America/Montreal",
+      "center": [-73.5673, 45.5017],
+      "zoom": 12.1,
+      "gtfs": {
+        "url": "https://www.stm.info/sites/default/files/gtfs/gtfs_stm.zip",
+        "attribution": "Horaires et parcours STM, données ouvertes."
+      },
+      "bikes": {
+        "label": "BIXI",
+        "gbfs": "https://gbfs.velobixi.com/gbfs/gbfs.json"
+      }
+    }
+  ]
+}
