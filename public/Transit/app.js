@@ -1585,7 +1585,7 @@ function paintGeoAsk(needed) {
   const el = document.getElementById("geo-ask");
   if (!el) return;
   const gps = state.here && state.here.source === "gps";
-  el.hidden = Boolean(gps) && !needed;
+  el.hidden = Boolean(gps) && needed !== true;
   if (!el.hidden) {
     el.textContent = navigator.geolocation
       ? "Autoriser la position — sinon le centre-ville est une fausse origine."
@@ -2734,6 +2734,7 @@ fillClockInput();
 applyTheme();
 listenHeading();
 paintHeading();
+paintGeoAsk(true);
 loadCity(bootCity).then(() => {
   if (bootStop && state.atlas) {
     const hit = state.atlas.stops.find((s) => s.id === bootStop);
