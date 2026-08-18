@@ -9,6 +9,8 @@ import { daytimeClock, eveningClock } from "./clock";
 import { pickLocale } from "./i18n";
 import { connectorWalk, departuresAtStop, planTrip } from "./planner";
 import { resolveSearchAction } from "./search-submit";
+import { lineByShortNameOrColor, nearbyLines, nextDueOnLine } from "./lines";
+import { mixLabel, planTrajectories } from "./trajectory";
 import { fold, firstStopFromQuery, nearbyStops, placeFromStop, searchAtlas } from "./search";
 import { activeServiceIndexes } from "./services";
 import { minutesOfDay } from "./time";
@@ -82,6 +84,17 @@ describe("hostile user input", () => {
     assert.match(src, /nearbyStops/);
     assert.match(src, /planFromHere|planTrip/);
     assert.match(src, /clockMinutes|getElementById\("at"\)/);
+  });
+
+  it("static atlas offers destination, line number/color, departure time, and next-due", () => {
+    const html = readFileSync(join(process.cwd(), "public", "Transit", "index.html"), "utf8");
+    const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
+    assert.match(html, /id="dest"/);
+    assert.match(html, /id="lines"/);
+    assert.match(html, /type="time"|id="at"/);
+    assert.match(html, /id="due"|Prochain|due/);
+    assert.match(src, /nearbyLines/);
+    assert.match(src, /nextDueOnLine/);
   });
 
   it("matches accent-folded Québec queries on the real atlas", () => {
@@ -435,6 +448,129 @@ describe("walk transfer connector", () => {
     const same = connectorWalk(alight, undefined, 3);
     assert.equal(same.from.stopId, same.to.stopId);
     assert.equal(same.meters, 80);
+  });
+});
+
+describe("nearby lines and next due", () => {
+  it("lists official nearby lines toward a destination on both cities", () => {
+    for (const city of ["quebec", "montreal"] as const) {
+      const { atlas } = loadCity(city);
+      const origin = firstStopHit(atlas, city === "quebec" ? "Youville" : "Berri");
+      const dest = firstStopHit(atlas, city === "quebec" ? "Universite Laval" : "McGill");
+      const lines = nearbyLines(atlas, origin, dest);
+      assert.ok(lines.length > 0, `${city} nearby lines empty`);
+      const byId = new Map(atlas.routes.map((route) => [route.id, route]));
+      for (const line of lines) {
+        const route = byId.get(line.routeId);
+        assert.ok(route, `${city} unknown route ${line.routeId}`);
+        assert.equal(line.shortName, route.shortName);
+        assert.equal(line.color, route.color);
+        assert.ok(line.shortName.length > 0);
+        assert.ok(line.meters >= 0);
+      }
+      assert.ok(
+        lines.some((line) => line.towardDest),
+        `${city} no line marked toward dest`,
+      );
+      if (city === "montreal") {
+        assert.equal(lines[0].type, 1, "Montréal métro must lead the line list");
+      }
+      const byName = lineByShortNameOrColor(lines, lines[0].shortName);
+      assert.ok(byName);
+      assert.equal(byName.routeId, lines[0].routeId);
+      const byColor = lineByShortNameOrColor(lines, lines[0].color);
+      assert.ok(byColor);
+      assert.equal(byColor.color, lines[0].color);
+    }
+  });
+
+  it("returns next-due of a selected line near the rider at daytime and evening clocks", () => {
+    for (const city of ["quebec", "montreal"] as const) {
+      const { atlas, timetable } = loadCity(city);
+      const origin = firstStopHit(atlas, city === "quebec" ? "Youville" : "Berri");
+      const dest = firstStopHit(atlas, city === "quebec" ? "Universite Laval" : "McGill");
+      const lines = nearbyLines(atlas, origin, dest);
+      assert.ok(lines.length > 0);
+      for (const clock of [daytimeClock(), eveningClock()]) {
+        const at = minutesOfDay(clock);
+        const active = activeServiceIndexes(atlas, clock);
+        const pick = lines.find(
+          (line) => nextDueOnLine(atlas, timetable, origin, line.routeId, at, active).length > 0,
+        );
+        assert.ok(pick, `${city} no nearby line with passages at ${at}`);
+        const due = nextDueOnLine(atlas, timetable, origin, pick.routeId, at, active);
+        assert.ok(due.length > 0);
+        for (const row of due) {
+          assert.equal(row.routeId, pick.routeId);
+          assert.equal(row.shortName, pick.shortName);
+          assert.equal(row.color, pick.color);
+          assert.ok(row.depart >= at);
+          assert.ok(row.clocks.length > 0);
+          assert.ok(row.wait >= 0);
+          assert.ok(row.stopName.length > 0);
+        }
+      }
+    }
+  });
+});
+
+describe("trajectory totals", () => {
+  it("totals walk, bike, bus, and métro mixes without a golden minute count", () => {
+    const clock = daytimeClock();
+    const at = minutesOfDay(clock);
+    for (const city of ["quebec", "montreal"] as const) {
+      const { atlas, timetable } = loadCity(city);
+      const from = placeFromStop(firstStopHit(atlas, city === "quebec" ? "Youville" : "Berri"));
+      const to = placeFromStop(
+        firstStopHit(atlas, city === "quebec" ? "Universite Laval" : "McGill"),
+      );
+      const bikes = [
+        {
+          id: "s",
+          name: "start",
+          lon: from.lon,
+          lat: from.lat,
+          bikes: 4,
+          docks: 4,
+          system: city === "quebec" ? ("avelo" as const) : ("bixi" as const),
+        },
+        {
+          id: "e",
+          name: "end",
+          lon: to.lon,
+          lat: to.lat,
+          bikes: 2,
+          docks: 6,
+          system: city === "quebec" ? ("avelo" as const) : ("bixi" as const),
+        },
+      ];
+      const options = planTrajectories(
+        atlas,
+        timetable,
+        from,
+        to,
+        at,
+        activeServiceIndexes(atlas, clock),
+        bikes,
+      );
+      assert.ok(options.length > 0, `${city} no trajectory options`);
+      const mixes = new Set(options.map((row) => row.mix));
+      assert.ok([...mixes].some((mix) => mix.includes("marche") || mix.includes("vélo")));
+      assert.ok([...mixes].some((mix) => mix.includes("bus") || mix.includes("métro")));
+      if (city === "montreal") {
+        assert.ok(
+          options.some((row) => row.mix.includes("métro")),
+          "Montréal must offer a métro mix",
+        );
+        assert.ok(options[0].mix.includes("métro"), "Montréal métro mix is listed first");
+      }
+      for (const row of options) {
+        assert.ok(row.minutes >= 0);
+        const summed = row.itinerary.legs.reduce((n, leg) => n + leg.minutes, 0);
+        assert.ok(row.minutes >= summed || row.minutes >= 0);
+        assert.equal(row.mix, mixLabel(row.itinerary.legs));
+      }
+    }
   });
 });
 

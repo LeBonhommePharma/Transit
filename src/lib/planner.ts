@@ -501,7 +501,11 @@ export function planTrip(
 
   const usable = found.filter((item) => item.minutes <= 12 * 60);
   const pool = usable.length > 0 ? usable : found;
-  pool.sort((a, b) => a.arrive - b.arrive || a.walkMeters - b.walkMeters);
+  pool.sort((a, b) => {
+    const metro = (item: Itinerary) =>
+      item.legs.some((leg) => leg.kind === "transit" && leg.type === 1) ? 0 : 1;
+    return metro(a) - metro(b) || a.arrive - b.arrive || a.walkMeters - b.walkMeters;
+  });
   const unique: Itinerary[] = [];
   const seen = new Set<string>();
   for (const item of pool) {
