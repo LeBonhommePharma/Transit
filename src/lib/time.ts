@@ -46,11 +46,26 @@ export function weekdayMon0(date: Date): number {
   return map[name] ?? 0;
 }
 
-export function formatClock(minutes: number): string {
+export function prefersHour12(locale?: string): boolean {
+  try {
+    const opts = new Intl.DateTimeFormat(locale || undefined, { hour: "numeric" }).resolvedOptions();
+    if (opts.hourCycle === "h11" || opts.hourCycle === "h12") return true;
+    if (opts.hourCycle === "h23" || opts.hourCycle === "h24") return false;
+    return Boolean(opts.hour12);
+  } catch {
+    return false;
+  }
+}
+
+export function formatClock(minutes: number, hour12 = false): string {
   const wrap = ((minutes % 1440) + 1440) % 1440;
   const h = Math.floor(wrap / 60);
   const m = wrap % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  const mm = String(m).padStart(2, "0");
+  if (!hour12) return `${String(h).padStart(2, "0")}:${mm}`;
+  const suffix = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${mm} ${suffix}`;
 }
 
 export function formatRelative(minutesFromNow: number): string {

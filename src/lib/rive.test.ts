@@ -13,7 +13,7 @@ import { lineByShortNameOrColor, nearbyLines, nextDueOnLine } from "./lines";
 import { mixLabel, planTrajectories } from "./trajectory";
 import { fold, firstStopFromQuery, nearbyStops, pinHereForCity, placeFromStop, searchAtlas, stopHasService } from "./search";
 import { activeServiceIndexes } from "./services";
-import { minutesOfDay } from "./time";
+import { formatClock, minutesOfDay, prefersHour12 } from "./time";
 import { pickPois } from "./poi";
 import {
   applyDetour,
@@ -118,6 +118,10 @@ describe("hostile user input", () => {
     assert.match(html, /html\.day|--paper/);
     assert.match(html, /id="refresh"|Actualiser/);
     assert.match(html, /id="fold"/);
+    assert.match(html, /id="clockfmt"/);
+    assert.match(src, /prefersHour12/);
+    assert.match(src, /clockMode/);
+    assert.match(src, /strokeStyle/);
     assert.match(html, /sheet-body|sheet\.folded/);
     assert.match(src, /setSheetOpen/);
     assert.match(src, /sheetOpen/);
@@ -981,6 +985,17 @@ describe("GTFS-RT overlay", () => {
     assert.equal(samePolyline(applied.line, trajectoryAfterRealtime(dir.line, {})), false);
     assert.notEqual(applied.minutes, staticMinutes);
     assert.ok(applied.minutes > 0);
+  });
+});
+
+describe("clock format", () => {
+  it("prints 24h by default and a 12h form when asked", () => {
+    assert.equal(formatClock(0), "00:00");
+    assert.equal(formatClock(960), "16:00");
+    assert.equal(formatClock(75), "01:15");
+    assert.equal(formatClock(0, true), "12:00 AM");
+    assert.equal(formatClock(960, true), "4:00 PM");
+    assert.equal(typeof prefersHour12(), "boolean");
   });
 });
 
