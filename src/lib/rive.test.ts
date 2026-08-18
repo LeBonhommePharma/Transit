@@ -5,11 +5,11 @@ import { describe, it } from "node:test";
 import type { Atlas, AtlasStop, Timetable } from "./atlas/types";
 import { parseTransitQuery } from "./assist";
 import { feedUrl, mergeStations } from "./bikeshare";
-import { daytimeClock } from "./clock";
+import { daytimeClock, eveningClock } from "./clock";
 import { pickLocale } from "./i18n";
 import { connectorWalk, departuresAtStop, planTrip } from "./planner";
 import { resolveSearchAction } from "./search-submit";
-import { fold, firstStopFromQuery, placeFromStop, searchAtlas } from "./search";
+import { fold, firstStopFromQuery, nearbyStops, placeFromStop, searchAtlas } from "./search";
 import { activeServiceIndexes } from "./services";
 import { minutesOfDay } from "./time";
 
@@ -68,6 +68,20 @@ describe("hostile user input", () => {
     const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
     assert.match(src, /if \(score > 0 && stop\.kind === 1\) score \+= 8;/);
     assert.doesNotMatch(src, /else if \(tokenHits > 0\) score = 40 \+ tokenHits \* 25;\s*if \(stop\.kind === 1\) score \+= 8;/);
+  });
+
+  it("static atlas asks here, nearby, destination, and horaire ailleurs at a given time", () => {
+    const html = readFileSync(join(process.cwd(), "public", "Transit", "index.html"), "utf8");
+    const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
+    assert.match(html, /id="here"/);
+    assert.match(html, /Où vas-tu|whereTo|id="dest"/);
+    assert.match(html, /Horaire ailleurs/);
+    assert.match(html, /type="time"|id="at"/);
+    assert.match(html, /id="nearby"/);
+    assert.match(src, /geolocation/);
+    assert.match(src, /nearbyStops/);
+    assert.match(src, /planFromHere|planTrip/);
+    assert.match(src, /clockMinutes|getElementById\("at"\)/);
   });
 
   it("matches accent-folded Québec queries on the real atlas", () => {
@@ -145,6 +159,8 @@ describe("locale and query assist", () => {
     assert.equal(intent.city, "quebec");
     assert.equal(intent.kind, "schedule");
     assert.match(intent.query, /Youville/i);
+    assert.equal(parseTransitQuery("horaire Traverse Levis").city, "quebec");
+    assert.equal(parseTransitQuery("horaire Montmorency stlaval").city, "montreal");
   });
 
   it("swallows non-string and empty assist input", () => {
@@ -217,6 +233,45 @@ describe("atlas joins", () => {
       }
     });
   }
+});
+
+describe("nearbyStops from a rider position", () => {
+  it("returns measured official stops around a real downtown stop on both atlases", () => {
+    for (const city of ["quebec", "montreal"] as const) {
+      const { atlas } = loadCity(city);
+      const seedName = city === "quebec" ? "Youville" : "Berri";
+      const seed = firstStopHit(atlas, seedName);
+      const near = nearbyStops(atlas.stops, { lon: seed.lon, lat: seed.lat }, 700, 14);
+      assert.ok(near.length > 0, `${city} nearby empty at ${seed.name}`);
+      for (const stop of near) {
+        assert.ok(stop.meters >= 0);
+        assert.ok(Number.isFinite(stop.meters));
+        assert.ok(typeof stop.name === "string" && stop.name.length > 0);
+        assert.ok(stop.id);
+      }
+      const family = fold(seed.name).split(" ")[0] || fold(seed.name);
+      assert.ok(
+        near.some(
+          (stop) =>
+            stop.id === seed.id ||
+            stop.parent === seed.id ||
+            seed.parent === stop.id ||
+            fold(stop.name).includes(family),
+        ),
+        `${city} nearby missed ${seed.name} family`,
+      );
+    }
+  });
+
+  it("is empty-safe for garbage and non-finite coordinates", () => {
+    const { atlas } = loadCity("montreal");
+    const stops = atlas.stops;
+    assert.deepEqual(nearbyStops(stops, { lon: Number.NaN, lat: 45.5 }), []);
+    assert.deepEqual(nearbyStops(stops, { lon: -73.5, lat: Number.POSITIVE_INFINITY }), []);
+    assert.deepEqual(nearbyStops(stops, { lon: Number.NEGATIVE_INFINITY, lat: 45.5 }), []);
+    assert.deepEqual(nearbyStops(stops, { lon: undefined as unknown as number, lat: 45.5 }), []);
+    assert.deepEqual(nearbyStops(stops, null as unknown as { lon: number; lat: number }), []);
+  });
 });
 
 describe("searchAtlas", () => {
@@ -310,6 +365,35 @@ describe("service day and next passages", () => {
     }
   });
 
+  it("lists passages at an explicit evening clock, not only afternoon now", () => {
+    const evening = eveningClock();
+    const at = minutesOfDay(evening);
+    assert.ok(at > minutesOfDay(clock));
+    const quebec = loadCity("quebec");
+    const montreal = loadCity("montreal");
+    const youville = firstStopHit(quebec.atlas, "Youville");
+    const berri = firstStopHit(montreal.atlas, "Berri");
+    const qcPass = departuresAtStop(
+      quebec.atlas,
+      quebec.timetable,
+      youville,
+      at,
+      activeServiceIndexes(quebec.atlas, evening),
+    );
+    const mtlPass = departuresAtStop(
+      montreal.atlas,
+      montreal.timetable,
+      berri,
+      at,
+      activeServiceIndexes(montreal.atlas, evening),
+    );
+    assert.ok(qcPass.length > 0);
+    assert.ok(mtlPass.length > 0);
+    for (const row of [...qcPass, ...mtlPass]) {
+      assert.ok(row.depart >= at);
+    }
+  });
+
   it("resolves a remote stop by name without geolocation", () => {
     const quebec = loadCity("quebec");
     const montreal = loadCity("montreal");
@@ -379,6 +463,50 @@ describe("planTrip", () => {
         assert.equal(routeIds.has(leg.routeId), true);
       }
     }
+  });
+
+  it("plans Berri to McGill at an explicit evening clock with legs after that clock", () => {
+    const evening = eveningClock();
+    const at = minutesOfDay(evening);
+    const { atlas, timetable } = loadCity("montreal");
+    const from = placeFromStop(firstStopHit(atlas, "Berri"));
+    const to = placeFromStop(firstStopHit(atlas, "McGill"));
+    const itineraries = planTrip(
+      atlas,
+      timetable,
+      from,
+      to,
+      at,
+      activeServiceIndexes(atlas, evening),
+    );
+    assert.ok(itineraries.length > 0);
+    const first = itineraries[0];
+    assert.ok(first.legs.length > 0);
+    for (const leg of first.legs) {
+      if (leg.kind === "transit") {
+        assert.ok(leg.depart >= at);
+      }
+    }
+  });
+
+  it("merges STLévis and STL Laval into the regional atlases", () => {
+    const quebec = loadCity("quebec");
+    const montreal = loadCity("montreal");
+    const stlevisRoutes = quebec.atlas.routes.filter((route) => route.agencyId === "STLévis");
+    const stlRoutes = montreal.atlas.routes.filter((route) => route.agencyId === "STL");
+    assert.ok(stlevisRoutes.length > 0);
+    assert.ok(stlRoutes.length > 0);
+    assert.ok(stlevisRoutes.every((route) => route.id.startsWith("stlevis:")));
+    assert.ok(stlRoutes.every((route) => route.id.startsWith("stl:")));
+    assert.ok(quebec.atlas.meta.agencies?.some((agency) => agency.id === "STLévis"));
+    assert.ok(montreal.atlas.meta.agencies?.some((agency) => agency.id === "STL"));
+
+    const traverse = firstStopFromQuery(quebec.atlas, "Terminus de la Traverse");
+    const montmorency = firstStopFromQuery(montreal.atlas, "Terminus Montmorency");
+    assert.ok(traverse);
+    assert.equal(traverse.agencyId, "STLévis");
+    assert.ok(montmorency);
+    assert.equal(montmorency.agencyId, "STL");
   });
 
   it("plans Berri area to McGill with legs whose routes exist", () => {

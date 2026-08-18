@@ -21,7 +21,7 @@ export function searchAtlas(atlas: Atlas, query: string, limit = 8): SearchHit[]
   const hits: SearchHit[] = [];
 
   for (const route of atlas.routes) {
-    const name = fold(`${route.shortName} ${route.longName}`);
+    const name = fold(`${route.shortName} ${route.longName} ${route.agencyId} ${route.agencyName}`);
     let score = -1;
     if (fold(route.shortName) === q) score = 200;
     else if (fold(route.shortName).startsWith(q)) score = 160;
@@ -34,8 +34,9 @@ export function searchAtlas(atlas: Atlas, query: string, limit = 8): SearchHit[]
     if (stop.kind === 2) continue;
     const name = fold(stop.name);
     const code = fold(stop.code || "");
+    const agency = fold(stop.agencyId || "");
     const tokens = q.split(/\s+/).filter((t) => t.length > 2);
-    const hay = ` ${name} ${code} `;
+    const hay = ` ${name} ${code} ${agency} `;
     const tokenHits = tokens.filter((t) => hay.includes(` ${t} `)).length;
     let score = -1;
     if (code && code === q) score = 190;
@@ -52,17 +53,31 @@ export function searchAtlas(atlas: Atlas, query: string, limit = 8): SearchHit[]
   return hits.slice(0, limit);
 }
 
+export function isFinitePoint(point: { lon?: unknown; lat?: unknown } | null | undefined): point is {
+  lon: number;
+  lat: number;
+} {
+  return (
+    !!point &&
+    Number.isFinite(Number(point.lon)) &&
+    Number.isFinite(Number(point.lat))
+  );
+}
+
 export function nearbyStops(
   stops: AtlasStop[],
   point: { lon: number; lat: number },
   radiusM = 700,
   limit = 14,
 ): Array<AtlasStop & { meters: number }> {
+  if (!isFinitePoint(point)) return [];
   const out: Array<AtlasStop & { meters: number }> = [];
   for (const stop of stops) {
     if (stop.kind === 2) continue;
+    if (!Number.isFinite(stop.lon) || !Number.isFinite(stop.lat)) continue;
     const meters = haversineMeters(point, { lon: stop.lon, lat: stop.lat });
-    if (meters <= radiusM) out.push({ ...stop, meters });
+    if (!Number.isFinite(meters) || meters > radiusM) continue;
+    out.push({ ...stop, meters: Math.round(meters) });
   }
   out.sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 1 ? -1 : b.kind === 1 ? 1 : 0;
