@@ -72,6 +72,122 @@ export function trajectoryAfterRealtime(
   return base;
 }
 
+export type RealtimeBundle = {
+  updates: TripUpdate[];
+  vehicles: VehiclePosition[];
+  shapes: Record<string, string>;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function num(value: unknown): number | undefined {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Decode compact JSON or GTFS-RT-shaped JSON. No zip fetch. */
+export function parseRealtimePayload(raw: unknown): RealtimeBundle {
+  const empty: RealtimeBundle = { updates: [], vehicles: [], shapes: {} };
+  const root = asRecord(raw);
+  if (!root) return empty;
+
+  const updates: TripUpdate[] = [];
+  const vehicles: VehiclePosition[] = [];
+  const shapes: Record<string, string> = {};
+
+  const compactUpdates = root.updates;
+  if (Array.isArray(compactUpdates)) {
+    for (const item of compactUpdates) {
+      const row = asRecord(item);
+      if (!row) continue;
+      updates.push({
+        routeId: typeof row.routeId === "string" ? row.routeId : undefined,
+        stopId: typeof row.stopId === "string" ? row.stopId : undefined,
+        delaySec: num(row.delaySec),
+        canceled: Boolean(row.canceled),
+        departure: num(row.departure),
+      });
+    }
+  }
+  if (Array.isArray(root.vehicles)) {
+    for (const item of root.vehicles) {
+      const row = asRecord(item);
+      if (!row) continue;
+      const lon = num(row.lon);
+      const lat = num(row.lat);
+      if (lon == null || lat == null) continue;
+      vehicles.push({
+        routeId: typeof row.routeId === "string" ? row.routeId : undefined,
+        lon,
+        lat,
+      });
+    }
+  }
+  if (root.shapes && typeof root.shapes === "object") {
+    for (const [id, line] of Object.entries(root.shapes as Record<string, unknown>)) {
+      if (typeof line === "string" && line) shapes[id] = line;
+    }
+  }
+
+  const entities = root.entity ?? root.entities;
+  if (Array.isArray(entities)) {
+    for (const entity of entities) {
+      const rec = asRecord(entity);
+      if (!rec) continue;
+      const tripUpdate = asRecord(rec.trip_update ?? rec.tripUpdate);
+      if (tripUpdate) {
+        const trip = asRecord(tripUpdate.trip);
+        const routeId =
+          (typeof trip?.route_id === "string" && trip.route_id) ||
+          (typeof trip?.routeId === "string" && trip.routeId) ||
+          undefined;
+        const canceled =
+          tripUpdate.schedule_relationship === 3 ||
+          tripUpdate.scheduleRelationship === "CANCELED" ||
+          trip?.schedule_relationship === 3;
+        const stus = tripUpdate.stop_time_update ?? tripUpdate.stopTimeUpdate;
+        if (Array.isArray(stus) && stus.length) {
+          for (const stu of stus) {
+            const stop = asRecord(stu);
+            if (!stop) continue;
+            const dep = asRecord(stop.departure) || asRecord(stop.arrival);
+            updates.push({
+              routeId,
+              stopId: typeof stop.stop_id === "string" ? stop.stop_id : typeof stop.stopId === "string" ? stop.stopId : undefined,
+              delaySec: num(dep?.delay),
+              canceled: canceled || stop.schedule_relationship === 1,
+              departure: undefined,
+            });
+          }
+        } else {
+          updates.push({ routeId, canceled: Boolean(canceled) });
+        }
+      }
+      const vehicle = asRecord(rec.vehicle);
+      if (vehicle) {
+        const trip = asRecord(vehicle.trip);
+        const pos = asRecord(vehicle.position);
+        const lon = num(pos?.longitude ?? pos?.lon);
+        const lat = num(pos?.latitude ?? pos?.lat);
+        if (lon != null && lat != null) {
+          vehicles.push({
+            routeId:
+              (typeof trip?.route_id === "string" && trip.route_id) ||
+              (typeof trip?.routeId === "string" && trip.routeId) ||
+              undefined,
+            lon,
+            lat,
+          });
+        }
+      }
+    }
+  }
+
+  return { updates, vehicles, shapes };
+}
+
 export function samePolyline(a: [number, number][], b: [number, number][]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {

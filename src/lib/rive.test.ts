@@ -15,7 +15,7 @@ import { fold, firstStopFromQuery, nearbyStops, pinHereForCity, placeFromStop, s
 import { activeServiceIndexes } from "./services";
 import { minutesOfDay } from "./time";
 import { pickPois } from "./poi";
-import { applyTripUpdatesToDue, samePolyline, trajectoryAfterRealtime } from "./realtime";
+import { applyTripUpdatesToDue, parseRealtimePayload, samePolyline, trajectoryAfterRealtime } from "./realtime";
 import { fingerprintFromMeta, shouldFetchZip } from "./update";
 
 function loadCity(city: "quebec" | "montreal"): { atlas: Atlas; timetable: Timetable } {
@@ -110,7 +110,10 @@ describe("hostile user input", () => {
     assert.match(html, /html\.day|--paper/);
     assert.match(html, /id="refresh"|Actualiser/);
     assert.match(src, /pickPois|pois/);
-    assert.match(src, /applyTripUpdatesToDue|trajectoryAfterRealtime/);
+    assert.match(src, /applyTripUpdatesToDue\(scheduled|applyTripUpdatesToDue\(due/);
+    assert.match(src, /loadRealtime/);
+    assert.match(src, /parseRealtimePayload/);
+    assert.match(src, /state\.vehicles = vehicles/);
     assert.match(src, /shouldFetchZip|userDeclared|feedIsStale/);
   });
 
@@ -848,6 +851,47 @@ describe("GTFS-RT overlay", () => {
     assert.equal(moved.depart - first.depart, 3);
     const canceled = applyTripUpdatesToDue(due, [{ routeId: first.routeId, stopId: first.stopId, canceled: true }], at);
     assert.ok(canceled.length < due.length || canceled.every((row) => row.stopId !== first.stopId));
+  });
+
+  it("decodes a GTFS-RT fixture then moves due and the trajectory on a real Montréal line", () => {
+    const clock = daytimeClock();
+    const at = minutesOfDay(clock);
+    const { atlas, timetable } = loadCity("montreal");
+    const here = firstStopHit(atlas, "Berri");
+    const dest = firstStopHit(atlas, "McGill");
+    const line = nearbyLines(atlas, here, dest).find((item) => item.type === 1) || nearbyLines(atlas, here, dest)[0];
+    assert.ok(line);
+    const due = nextDueOnLine(atlas, timetable, here, line.routeId, at, activeServiceIndexes(atlas, clock));
+    assert.ok(due.length > 0);
+    const first = due[0];
+    const encoded = atlas.routes.find((route) => route.id === line.routeId)?.dirs.find((dir) => dir.line)?.line || "";
+    assert.ok(encoded);
+    const payload = {
+      entity: [
+        {
+          trip_update: {
+            trip: { route_id: first.routeId },
+            stop_time_update: [{ stop_id: first.stopId, departure: { delay: 240 } }],
+          },
+        },
+        {
+          vehicle: {
+            trip: { route_id: line.routeId },
+            position: { latitude: 45.5017, longitude: -73.5673 },
+          },
+        },
+      ],
+    };
+    const parsed = parseRealtimePayload(payload);
+    assert.ok(parsed.updates.length > 0);
+    assert.ok(parsed.vehicles.length > 0);
+    const live = applyTripUpdatesToDue(due, parsed.updates, at);
+    const moved = live.find((row) => row.stopId === first.stopId);
+    assert.ok(moved);
+    assert.ok(moved.depart > first.depart);
+    const frozen = trajectoryAfterRealtime(encoded, {});
+    const skittle = trajectoryAfterRealtime(encoded, { vehicle: parsed.vehicles[0] });
+    assert.equal(samePolyline(skittle, frozen), false);
   });
 
   it("replaces a frozen ingest shape when a vehicle or new shape is reported", () => {
