@@ -23,7 +23,8 @@ import {
   validateProbe,
 } from "./probe";
 import { remainMinutes, watchPulseFromPayload } from "./watch-remain";
-import { applyLivePulse, livePulseEnd, livePulseFromTransit } from "./live-pulse";
+import { applyLivePulse, boardingStopName, livePulseEnd, livePulseFromTransit } from "./live-pulse";
+import { formatMeters } from "./geo";
 import { mixLabel, planTrajectories, rankByDoorToDoor } from "./trajectory";
 import { buildingHeightMeters, extrudeOffsetPx, parseOverpassBuildings, wallQuads } from "./buildings";
 import { fold, firstStopFromQuery, nearbyStops, pinHereForCity, placeFromStop, searchAtlas, stopHasService } from "./search";
@@ -1442,12 +1443,25 @@ describe("live pulse start and stop", () => {
     assert.equal(idle.live, null);
     assert.equal(store.getItem("rive.live"), null);
     assert.equal(livePulseFromTransit({ route: "801", departs: [900] }, 950).action, "end");
+    assert.equal(
+      boardingStopName({ legs: [{ kind: "transit", from: { name: "D'Youville", lon: 1, lat: 2 } }] }),
+      "D'Youville",
+    );
+    assert.equal(boardingStopName({ legs: [{ kind: "walk", from: { name: "x" } }] }), "");
+    assert.equal(formatMeters(59.34), "59.3 m");
+    assert.equal(formatMeters(Number.NaN), "");
     const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
     assert.match(src, /function startTrip/);
     assert.match(src, /pulseFromTrip\(trip\)/);
+    assert.match(src, /stop: boardingStopName\(trip\)/);
+    assert.doesNotMatch(src, /state\.dest && state\.dest\.name/);
     assert.match(src, /function stopTrip/);
     assert.match(src, /livePulseEnd\(\)/);
     assert.match(src, /pulseFromSelectedLine/);
+    assert.match(src, /inspectMapPoint/);
+    assert.match(src, /paintMapHud/);
+    const html = readFileSync(join(process.cwd(), "public", "Transit", "index.html"), "utf8");
+    assert.match(html, /id="map-hud"/);
     const pusher = readFileSync(join(process.cwd(), "ios", "Rive", "LiveDeparturePusher.swift"), "utf8");
     assert.match(pusher, /static func end/);
     const shell = readFileSync(join(process.cwd(), "ios", "RiveApp", "RiveApp.swift"), "utf8");

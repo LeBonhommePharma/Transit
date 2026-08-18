@@ -17,6 +17,12 @@ export function walkMinutes(meters: number): number {
   return Math.max(1, Math.round(meters / 75));
 }
 
+/** Display meters to the tenth. Non-finite → empty. */
+export function formatMeters(meters: number): string {
+  if (!Number.isFinite(meters)) return "";
+  return `${(Math.round(meters * 10) / 10).toFixed(1)} m`;
+}
+
 export function decodePolyline(encoded: string, precision = 5): [number, number][] {
   if (!encoded) return [];
   const factor = 10 ** precision;

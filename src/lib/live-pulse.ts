@@ -47,6 +47,14 @@ function asClocks(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string" && item.length > 0);
 }
 
+/** Boarding pole only. Never the destination name. */
+export function boardingStopName(trip: { legs?: Array<{ kind?: string; from?: { name?: string; label?: string } }> } | null | undefined): string {
+  const transit = (trip?.legs || []).find((leg) => leg.kind === "transit");
+  const from = transit?.from;
+  if (!from || typeof from !== "object") return "";
+  return (typeof from.name === "string" && from.name) || (typeof from.label === "string" && from.label) || "";
+}
+
 /** Empty, walk-only, or past departs → end. Never invents a route. */
 export function livePulseFromTransit(input: LivePulseInput | null | undefined, now: number): LivePulseCommand {
   if (!input || typeof input !== "object") return { action: "end" };
