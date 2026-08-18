@@ -11,7 +11,7 @@ import { connectorWalk, departuresAtStop, planTrip } from "./planner";
 import { resolveSearchAction } from "./search-submit";
 import { lineByShortNameOrColor, nearbyLines, nextDueOnLine } from "./lines";
 import { mixLabel, planTrajectories } from "./trajectory";
-import { fold, firstStopFromQuery, nearbyStops, placeFromStop, searchAtlas } from "./search";
+import { fold, firstStopFromQuery, nearbyStops, pinHereForCity, placeFromStop, searchAtlas } from "./search";
 import { activeServiceIndexes } from "./services";
 import { minutesOfDay } from "./time";
 
@@ -95,6 +95,7 @@ describe("hostile user input", () => {
     assert.match(html, /id="due"|Prochain|due/);
     assert.match(src, /nearbyLines/);
     assert.match(src, /nextDueOnLine/);
+    assert.match(src, /pinHereForCity/);
   });
 
   it("matches accent-folded Québec queries on the real atlas", () => {
@@ -511,6 +512,36 @@ describe("nearby lines and next due", () => {
         }
       }
     }
+  });
+
+  it("still lists official Montréal lines after a Québec→Montréal here re-pin", () => {
+    const quebec = loadCity("quebec");
+    const montreal = loadCity("montreal");
+    const qcCenter = {
+      lon: quebec.atlas.meta.center[0],
+      lat: quebec.atlas.meta.center[1],
+      source: "map" as const,
+    };
+    const mtlCenter = {
+      lon: montreal.atlas.meta.center[0],
+      lat: montreal.atlas.meta.center[1],
+    };
+    assert.equal(nearbyLines(montreal.atlas, qcCenter).length, 0);
+    const pinned = pinHereForCity(qcCenter, mtlCenter);
+    assert.equal(pinned.source, "map");
+    assert.equal(pinned.lon, mtlCenter.lon);
+    assert.equal(pinned.lat, mtlCenter.lat);
+    const dest = firstStopHit(montreal.atlas, "McGill");
+    const lines = nearbyLines(montreal.atlas, pinned, dest);
+    assert.ok(lines.length > 0, "Montréal dest after city switch must still yield lines");
+    const byId = new Map(montreal.atlas.routes.map((route) => [route.id, route]));
+    for (const line of lines) {
+      const route = byId.get(line.routeId);
+      assert.ok(route);
+      assert.equal(line.shortName, route.shortName);
+      assert.equal(line.color, route.color);
+    }
+    assert.equal(lines[0].type, 1);
   });
 });
 

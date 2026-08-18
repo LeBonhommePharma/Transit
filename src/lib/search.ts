@@ -67,6 +67,21 @@ export function isFinitePoint(point: { lon?: unknown; lat?: unknown } | null | u
   );
 }
 
+/** Map-sourced here is city-local. GPS is kept only if still near the new city. */
+export function pinHereForCity(
+  here: { lon: number; lat: number; source?: string } | null | undefined,
+  center: { lon: number; lat: number },
+  maxMeters = 40_000,
+): { lon: number; lat: number; source: string } {
+  if (here && here.source === "gps" && isFinitePoint(here) && isFinitePoint(center)) {
+    const meters = haversineMeters(here, center);
+    if (Number.isFinite(meters) && meters <= maxMeters) {
+      return { lon: here.lon, lat: here.lat, source: "gps" };
+    }
+  }
+  return { lon: center.lon, lat: center.lat, source: "map" };
+}
+
 export function nearbyStops(
   stops: AtlasStop[],
   point: { lon: number; lat: number },
