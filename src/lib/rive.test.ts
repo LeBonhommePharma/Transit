@@ -10,7 +10,20 @@ import { pickLocale } from "./i18n";
 import { connectorWalk, departuresAtStop, planTrip } from "./planner";
 import { resolveSearchAction } from "./search-submit";
 import { collapseDueByDirection, lineByShortNameOrColor, nearbyLines, nextDueOnLine } from "./lines";
-import { mixLabel, planTrajectories } from "./trajectory";
+import { decodePolyline } from "./geo";
+import { headingFromSample } from "./heading";
+import { acceptRiderFix, emptyRiderStore } from "./rider";
+import {
+  applyFusedEtaToDue,
+  emptyProbeStore,
+  expireProbes,
+  fuseRouteProbes,
+  ingestProbe,
+  snapToShape,
+  validateProbe,
+} from "./probe";
+import { remainMinutes, watchPulseFromPayload } from "./watch-remain";
+import { mixLabel, planTrajectories, rankByDoorToDoor } from "./trajectory";
 import { fold, firstStopFromQuery, nearbyStops, pinHereForCity, placeFromStop, searchAtlas, stopHasService } from "./search";
 import { activeServiceIndexes } from "./services";
 import { formatClock, minutesOfDay, prefersHour12 } from "./time";
@@ -133,7 +146,7 @@ describe("hostile user input", () => {
     assert.match(src, /setSheetOpen/);
     assert.match(src, /sheetOpen/);
     assert.match(src, /pickPois|pois/);
-    assert.match(src, /const due = applyTripUpdatesToDue\(scheduled, state\.tripUpdates/);
+    assert.match(src, /applyTripUpdatesToDue\(scheduled, state\.tripUpdates/);
     assert.match(src, /await loadRealtime\(\);/);
     assert.match(src, /async function loadRealtime/);
     assert.match(src, /parseRealtimePayload/);
@@ -141,6 +154,12 @@ describe("hostile user input", () => {
     assert.match(src, /applyDetour|state\.detours/);
     assert.match(src, /overlayWithVehicles|vehiclesOnRoute/);
     assert.match(src, /shouldFetchZip|userDeclared|feedIsStale/);
+    assert.match(src, /watchPosition/);
+    assert.match(src, /headingFromSample/);
+    assert.match(src, /acceptRiderFix/);
+    assert.match(src, /rankByDoorToDoor/);
+    assert.match(src, /fuseRouteProbes/);
+    assert.match(html, /id="heading"/);
   });
 
   it("matches accent-folded Québec queries on the real atlas", () => {
@@ -710,7 +729,8 @@ describe("trajectory totals", () => {
           options.some((row) => row.mix.includes("métro")),
           "Montréal must offer a métro mix",
         );
-        assert.ok(options[0].mix.includes("métro"), "Montréal métro mix is listed first");
+        const fastest = Math.min(...options.map((row) => row.minutes));
+        assert.equal(options[0].minutes, fastest, "shortest door-to-door minutes must be first");
       }
       for (const row of options) {
         assert.ok(row.minutes >= 0);
@@ -1093,6 +1113,223 @@ describe("popularity-weighted POIs", () => {
     assert.equal(ids.has("obscure-qc") || ids.has("obscure-mtl"), false);
     assert.ok(ids.has("chateau") || ids.has("old-mtl"));
     assert.deepEqual(pickPois(table.places, 0), []);
+  });
+});
+
+function bikePair(from: { lon: number; lat: number }, to: { lon: number; lat: number }, system: "avelo" | "bixi") {
+  return [
+    { id: "s", name: "start", lon: from.lon, lat: from.lat, bikes: 4, docks: 4, system },
+    { id: "e", name: "end", lon: to.lon, lat: to.lat, bikes: 2, docks: 6, system },
+  ];
+}
+
+function officialShape(atlas: Atlas): { routeId: string; shape: [number, number][] } {
+  for (const route of atlas.routes) {
+    for (const dir of route.dirs) {
+      const shape = decodePolyline(dir.line);
+      if (shape.length >= 8) return { routeId: route.id, shape };
+    }
+  }
+  throw new Error("no official shape");
+}
+
+describe("destination options are time-shortest first", () => {
+  it("returns several mixes and lists the shortest door-to-door minutes first", () => {
+    const clock = daytimeClock();
+    const at = minutesOfDay(clock);
+    const pairs = [
+      { city: "quebec" as const, fromQ: "Youville", toQ: "Universite Laval", system: "avelo" as const },
+      { city: "montreal" as const, fromQ: "Berri", toQ: "McGill", system: "bixi" as const },
+    ];
+    for (const pair of pairs) {
+      const { atlas, timetable } = loadCity(pair.city);
+      const from = placeFromStop(firstStopHit(atlas, pair.fromQ));
+      const to = placeFromStop(firstStopHit(atlas, pair.toQ));
+      const options = planTrajectories(
+        atlas,
+        timetable,
+        from,
+        to,
+        at,
+        activeServiceIndexes(atlas, clock),
+        bikePair(from, to, pair.system),
+      );
+      assert.ok(options.length >= 2, `${pair.city} must offer more than one option`);
+      const families = new Set<string>();
+      for (const row of options) {
+        if (row.mix.includes("marche")) families.add("marche");
+        if (row.mix.includes("vélo")) families.add("vélo");
+        if (row.mix.includes("bus")) families.add("bus");
+        if (row.mix.includes("métro")) families.add("métro");
+      }
+      assert.ok(families.size >= 2, `${pair.city} mixes ${[...families].join(",")}`);
+      const fastest = Math.min(...options.map((row) => row.minutes));
+      assert.equal(options[0].minutes, fastest);
+      for (const row of options) {
+        assert.ok(row.minutes >= options[0].minutes);
+      }
+      const ranked = rankByDoorToDoor(options.slice().reverse());
+      assert.equal(ranked[0].minutes, fastest);
+    }
+  });
+});
+
+describe("heading", () => {
+  it("normalizes bearings and stays empty on garbage", () => {
+    const north = headingFromSample(0);
+    const east = headingFromSample(90);
+    const south = headingFromSample(180);
+    const wrap = headingFromSample(360);
+    const almost = headingFromSample(359);
+    assert.ok(north);
+    assert.ok(east);
+    assert.ok(south);
+    assert.ok(wrap);
+    assert.ok(almost);
+    assert.equal(north.degrees, 0);
+    assert.equal(north.cardinal, "N");
+    assert.equal(east.degrees, 90);
+    assert.equal(east.cardinal, "E");
+    assert.equal(south.degrees, 180);
+    assert.equal(south.cardinal, "S");
+    assert.equal(wrap.degrees, 0);
+    assert.equal(wrap.cardinal, "N");
+    assert.ok(almost.degrees >= 0 && almost.degrees < 360);
+    assert.ok(almost.cardinal);
+    assert.equal(headingFromSample(Number.NaN), null);
+    assert.equal(headingFromSample(undefined), null);
+    assert.equal(headingFromSample(null), null);
+    assert.equal(headingFromSample({}), null);
+    assert.equal(headingFromSample({ heading: "nope" }), null);
+    const fromAlpha = headingFromSample({ alpha: 45 });
+    assert.ok(fromAlpha);
+    assert.equal(fromAlpha.cardinal, "NE");
+  });
+});
+
+describe("connected rider location", () => {
+  it("accepts successive finite fixes and drops stale or junk", () => {
+    const { atlas } = loadCity("montreal");
+    const { shape } = officialShape(atlas);
+    const a = { lon: shape[1][0], lat: shape[1][1] };
+    const b = { lon: shape[2][0], lat: shape[2][1] };
+    let store = emptyRiderStore();
+    assert.equal(store.here, null);
+    store = acceptRiderFix(store, { lon: a.lon, lat: a.lat, at: 1_000, source: "gps" }, 1_000);
+    assert.ok(store.here);
+    assert.equal(store.here.lon, a.lon);
+    store = acceptRiderFix(store, { lon: b.lon, lat: b.lat, at: 2_000, source: "gps" }, 2_000);
+    assert.equal(store.here?.lon, b.lon);
+    assert.equal(store.here?.lat, b.lat);
+    const frozen = store.here;
+    store = acceptRiderFix(store, { lon: a.lon, lat: a.lat, at: 1_500, source: "gps" }, 2_000);
+    assert.equal(store.here?.at, frozen?.at);
+    store = acceptRiderFix(store, { lon: "x", lat: b.lat, at: 3_000 }, 3_000);
+    assert.equal(store.here?.at, frozen?.at);
+    store = acceptRiderFix(store, { lon: 200, lat: b.lat, at: 3_000 }, 3_000);
+    assert.equal(store.here?.at, frozen?.at);
+    store = acceptRiderFix(store, { lon: a.lon, lat: a.lat, at: 3_000 }, 3_000 + 6 * 60 * 1000);
+    assert.equal(store.here?.at, frozen?.at);
+  });
+});
+
+describe("crowd-probe fuse", () => {
+  it("moves ETA only with enough agreeing snaps and leaves official due otherwise", () => {
+    const clock = daytimeClock();
+    const at = minutesOfDay(clock);
+    const { atlas, timetable } = loadCity("montreal");
+    const here = firstStopHit(atlas, "Berri");
+    const dest = firstStopHit(atlas, "McGill");
+    const line = nearbyLines(atlas, here, dest).find((item) => item.type === 1) || nearbyLines(atlas, here, dest)[0];
+    assert.ok(line);
+    const due = nextDueOnLine(atlas, timetable, here, line.routeId, at, activeServiceIndexes(atlas, clock));
+    assert.ok(due.length > 0);
+    const official = due[0].depart;
+    const route = atlas.routes.find((item) => item.id === line.routeId);
+    const shape = decodePolyline(route?.dirs[0]?.line || "");
+    assert.ok(shape.length >= 4);
+    const snapped = snapToShape({ lon: shape[1][0], lat: shape[1][1] }, shape);
+    assert.ok(snapped);
+    const now = 10_000;
+    let store = emptyProbeStore();
+    assert.equal(
+      fuseRouteProbes({ store, routeId: line.routeId, shape, now, officialDepart: official }),
+      null,
+    );
+    assert.deepEqual(applyFusedEtaToDue(due, null, at), due);
+
+    store = ingestProbe(store, { lon: shape[1][0], lat: shape[1][1], at: now, routeId: line.routeId }, now);
+    assert.equal(
+      fuseRouteProbes({ store, routeId: line.routeId, shape, now, officialDepart: official, expectedAlongMeters: 4000 }),
+      null,
+    );
+    assert.equal(validateProbe({ lon: shape[1][0], lat: shape[1][1], at: now, userId: "x" }), null);
+    assert.equal(validateProbe({ lon: 0, lat: 0, at: now }), null);
+    assert.equal(validateProbe({ lon: Number.NaN, lat: shape[1][1], at: now }), null);
+
+    store = ingestProbe(store, { lon: shape[1][0] + 0.00005, lat: shape[1][1], at: now + 200, routeId: line.routeId }, now + 200);
+    store = ingestProbe(store, { lon: shape[1][0], lat: shape[1][1] + 0.00005, at: now + 400, routeId: line.routeId }, now + 400);
+    const fused = fuseRouteProbes({
+      store,
+      routeId: line.routeId,
+      shape,
+      now: now + 400,
+      officialDepart: official,
+      expectedAlongMeters: snapped.alongMeters + 4000,
+    });
+    assert.ok(fused);
+    assert.ok(fused.etaShiftMinutes > 0);
+    const moved = applyFusedEtaToDue(due, fused, at);
+    const row = moved.find((item) => item.stopId === due[0].stopId && item.headsign === due[0].headsign);
+    assert.ok(row);
+    assert.ok(row.depart > official);
+
+    const expired = expireProbes(store, now + 400 + 4 * 60 * 1000);
+    assert.equal(
+      fuseRouteProbes({
+        store: expired,
+        routeId: line.routeId,
+        shape,
+        now: now + 400 + 4 * 60 * 1000,
+        officialDepart: official,
+        expectedAlongMeters: snapped.alongMeters + 4000,
+      }),
+      null,
+    );
+  });
+});
+
+describe("watch remain", () => {
+  it("returns a non-negative remain for a future depart and stays idle on empty payload", () => {
+    assert.equal(remainMinutes([960], 950), 10);
+    assert.equal(remainMinutes(["800"], 790), 10);
+    assert.ok((remainMinutes([10], 1430) ?? -1) >= 0);
+    assert.equal(remainMinutes([], 950), null);
+    assert.equal(remainMinutes(undefined, 950), null);
+    assert.equal(remainMinutes(["nope"], 950), null);
+    assert.equal(watchPulseFromPayload(null), null);
+    assert.equal(watchPulseFromPayload(""), null);
+    assert.equal(watchPulseFromPayload({}), null);
+    const pulse = watchPulseFromPayload({ s: "Youville", r: "801", m: "960,968", t: "16:00,16:08" });
+    assert.ok(pulse);
+    assert.equal(remainMinutes(pulse.departs, 950), 10);
+    const watchHtml = readFileSync(join(process.cwd(), "public", "Transit", "watch.html"), "utf8");
+    assert.match(watchHtml, /remainMinutes/);
+    assert.match(watchHtml, /watchPulseFromPayload/);
+    assert.match(watchHtml, /stay on the empty face|if \(!live\) return/);
+  });
+
+  it("drives the shipped static rive-kit remain and heading", async () => {
+    const shipped = await import("../../public/Transit/rive-kit.js");
+    assert.equal(shipped.remainMinutes([960], 950), 10);
+    assert.equal(shipped.remainMinutes([], 950), null);
+    assert.equal(shipped.headingFromSample(90).cardinal, "E");
+    assert.equal(shipped.headingFromSample(null), null);
+    const ranked = shipped.rankByDoorToDoor([
+      { minutes: 18, mix: "métro" },
+      { minutes: 9, mix: "vélo" },
+    ]);
+    assert.equal(ranked[0].minutes, 9);
   });
 });
 

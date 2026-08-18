@@ -120,13 +120,13 @@ export function trajectoryChoices(itineraries: Itinerary[]): TrajectoryOption[] 
       }
     }
   }
-  out.sort((a, b) => {
-    const metroA = a.mix.includes("métro") ? 0 : 1;
-    const metroB = b.mix.includes("métro") ? 0 : 1;
-    if (metroA !== metroB) return metroA - metroB;
-    return a.minutes - b.minutes || a.mix.localeCompare(b.mix, "fr");
-  });
+  out.sort((a, b) => a.minutes - b.minutes || a.mix.localeCompare(b.mix, "fr"));
   return out;
+}
+
+/** Rome2Rio-style: shortest door-to-door minutes first. Does not prefer métro. */
+export function rankByDoorToDoor<T extends { minutes: number }>(options: T[]): T[] {
+  return [...options].sort((a, b) => a.minutes - b.minutes);
 }
 
 export function planTrajectories(
@@ -138,5 +138,5 @@ export function planTrajectories(
   active: Set<number>,
   bikes: BikeStation[] = [],
 ): TrajectoryOption[] {
-  return trajectoryChoices(planTrip(atlas, timetable, from, to, now, active, bikes));
+  return rankByDoorToDoor(trajectoryChoices(planTrip(atlas, timetable, from, to, now, active, bikes)));
 }

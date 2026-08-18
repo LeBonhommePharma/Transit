@@ -84,6 +84,9 @@ enum RiveKitCheck {
       updated: Date(timeIntervalSince1970: 1_700_000_000)
     )
     check("watch remain minutes", youville.remainMinutes(at: date) == 10)
+    check("watch remain empty payload is idle", LiveDeparture.remainMinutes(departs: [], at: date) == nil)
+    check("watch remain missing depart is idle", LiveDeparture.remainMinutes(departMinutes: nil, at: date) == nil)
+    check("watch remain list picks soonest", LiveDeparture.remainMinutes(departs: [800, 830], at: date) == 10)
 
     let faceURL = URL(fileURLWithPath: #filePath)
       .deletingLastPathComponent()

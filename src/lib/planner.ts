@@ -501,15 +501,20 @@ export function planTrip(
 
   const usable = found.filter((item) => item.minutes <= 12 * 60);
   const pool = usable.length > 0 ? usable : found;
-  pool.sort((a, b) => {
-    const metro = (item: Itinerary) =>
-      item.legs.some((leg) => leg.kind === "transit" && leg.type === 1) ? 0 : 1;
-    return metro(a) - metro(b) || a.arrive - b.arrive || a.walkMeters - b.walkMeters;
-  });
+  pool.sort((a, b) => a.minutes - b.minutes || a.arrive - b.arrive || a.walkMeters - b.walkMeters);
   const unique: Itinerary[] = [];
   const seen = new Set<string>();
-  for (const item of pool) {
-    const signature = item.legs
+  const familyOf = (item: Itinerary) => {
+    if (item.legs.every((leg) => leg.kind === "walk")) return "marche";
+    if (item.legs.some((leg) => leg.kind === "bike") && !item.legs.some((leg) => leg.kind === "transit")) {
+      return "velo";
+    }
+    if (item.legs.some((leg) => leg.kind === "transit" && "type" in leg && leg.type === 1)) return "metro";
+    if (item.legs.some((leg) => leg.kind === "transit")) return "bus";
+    return "other";
+  };
+  const signatureOf = (item: Itinerary) =>
+    item.legs
       .map((leg) =>
         leg.kind === "walk"
           ? `w:${leg.to.label}`
@@ -518,10 +523,22 @@ export function planTrip(
             : `t:${leg.shortName}:${leg.headsign}:${leg.from.stopId}`,
       )
       .join(">");
-    if (seen.has(signature)) continue;
+  const take = (item: Itinerary) => {
+    const signature = signatureOf(item);
+    if (seen.has(signature)) return false;
     seen.add(signature);
     unique.push(item);
-    if (unique.length >= 4) break;
+    return true;
+  };
+  for (const item of pool) {
+    take(item);
+    if (unique.length >= 6) break;
   }
-  return unique;
+  for (const family of ["marche", "velo", "metro", "bus"]) {
+    if (unique.some((item) => familyOf(item) === family)) continue;
+    const extra = pool.find((item) => familyOf(item) === family);
+    if (extra) take(extra);
+  }
+  unique.sort((a, b) => a.minutes - b.minutes || a.arrive - b.arrive || a.walkMeters - b.walkMeters);
+  return unique.slice(0, 8);
 }

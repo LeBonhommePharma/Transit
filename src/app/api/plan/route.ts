@@ -4,6 +4,7 @@ import { isPlace, parseClock, readJsonBody } from "@/lib/http";
 import { planTrip } from "@/lib/planner";
 import { activeServiceIndexes } from "@/lib/services";
 import { minutesOfDay, montrealNow } from "@/lib/time";
+import { planTrajectories } from "@/lib/trajectory";
 
 export const runtime = "nodejs";
 
@@ -30,18 +31,19 @@ export async function POST(request: Request) {
     loadTimetable(body.city),
     stationsFor(body.city).catch(() => []),
   ]);
-  const itineraries = planTrip(
-    atlas,
-    timetable,
-    body.from,
-    body.to,
-    minutesOfDay(at),
-    activeServiceIndexes(atlas, at),
-    bikes,
-  );
+  const now = minutesOfDay(at);
+  const active = activeServiceIndexes(atlas, at);
+  const itineraries = planTrip(atlas, timetable, body.from, body.to, now, active, bikes);
+  const options = planTrajectories(atlas, timetable, body.from, body.to, now, active, bikes);
   return Response.json({
     city: body.city,
     at: at.toISOString(),
     itineraries,
+    options: options.map((row) => ({
+      mix: row.mix,
+      minutes: row.minutes,
+      walkMeters: row.walkMeters,
+      itinerary: row.itinerary,
+    })),
   });
 }
