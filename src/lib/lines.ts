@@ -1,7 +1,7 @@
 import type { Atlas, Timetable } from "./atlas/types";
 import { formatClock } from "./time";
 import { departuresAtStop } from "./planner";
-import { isFinitePoint, nearbyStops } from "./search";
+import { fold, isFinitePoint, nearbyStops } from "./search";
 
 export type NearbyLine = {
   routeId: string;
@@ -115,16 +115,22 @@ export function nextDueOnLine(
       });
     }
   }
-  rows.sort((a, b) => a.depart - b.depart || a.meters - b.meters);
+  return collapseDueByDirection(rows, limit);
+}
+
+/** One skittle per route + direction. Keep the closest pole, not the next two copies. */
+export function collapseDueByDirection(rows: LineDue[], limit = 12): LineDue[] {
+  const ranked = [...rows].sort((a, b) => a.meters - b.meters || a.depart - b.depart);
   const seen = new Set<string>();
   const unique: LineDue[] = [];
-  for (const row of rows) {
-    const key = `${row.stopId}|${row.headsign}|${row.depart}`;
+  for (const row of ranked) {
+    const key = `${row.routeId}|${fold(row.headsign)}`;
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(row);
     if (unique.length >= limit) break;
   }
+  unique.sort((a, b) => a.depart - b.depart || a.meters - b.meters);
   return unique;
 }
 

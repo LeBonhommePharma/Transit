@@ -9,7 +9,7 @@ import { daytimeClock, eveningClock } from "./clock";
 import { pickLocale } from "./i18n";
 import { connectorWalk, departuresAtStop, planTrip } from "./planner";
 import { resolveSearchAction } from "./search-submit";
-import { lineByShortNameOrColor, nearbyLines, nextDueOnLine } from "./lines";
+import { collapseDueByDirection, lineByShortNameOrColor, nearbyLines, nextDueOnLine } from "./lines";
 import { mixLabel, planTrajectories } from "./trajectory";
 import { fold, firstStopFromQuery, nearbyStops, pinHereForCity, placeFromStop, searchAtlas, stopHasService } from "./search";
 import { activeServiceIndexes } from "./services";
@@ -106,6 +106,7 @@ describe("hostile user input", () => {
     assert.match(html, /id="due"|Prochain|due/);
     assert.match(src, /nearbyLines/);
     assert.match(src, /nextDueOnLine/);
+    assert.match(src, /collapseDueByDirection/);
     assert.match(src, /pinHereForCity/);
   });
 
@@ -549,6 +550,78 @@ describe("nearby lines and next due", () => {
           assert.ok(row.stopName.length > 0);
         }
       }
+    }
+  });
+
+  it("does not list the same bus and direction at the next two poles", () => {
+    const clock = daytimeClock();
+    const at = minutesOfDay(clock);
+    for (const city of ["quebec", "montreal"] as const) {
+      const { atlas, timetable } = loadCity(city);
+      const origin = firstStopHit(atlas, city === "quebec" ? "Youville" : "Berri");
+      const lines = nearbyLines(atlas, origin);
+      const pick =
+        lines.find(
+          (line) =>
+            nearbyStops(atlas.stops, origin, 700, 16).filter((stop) => stop.routes.includes(line.routeId))
+              .length > 1,
+        ) || lines[0];
+      assert.ok(pick);
+      const due = nextDueOnLine(
+        atlas,
+        timetable,
+        origin,
+        pick.routeId,
+        at,
+        activeServiceIndexes(atlas, clock),
+      );
+      const keys = due.map((row) => `${row.routeId}|${fold(row.headsign)}`);
+      assert.equal(keys.length, new Set(keys).size, `${city} repeated ${pick.shortName} direction`);
+      const collapsed = collapseDueByDirection([
+        {
+          routeId: pick.routeId,
+          shortName: pick.shortName,
+          color: pick.color,
+          textColor: "#fff",
+          stopId: "far",
+          stopName: "far",
+          meters: 200,
+          headsign: "Nord",
+          depart: at + 2,
+          wait: 2,
+          clocks: [],
+        },
+        {
+          routeId: pick.routeId,
+          shortName: pick.shortName,
+          color: pick.color,
+          textColor: "#fff",
+          stopId: "near",
+          stopName: "near",
+          meters: 40,
+          headsign: "Nord",
+          depart: at + 3,
+          wait: 3,
+          clocks: [],
+        },
+        {
+          routeId: pick.routeId,
+          shortName: pick.shortName,
+          color: pick.color,
+          textColor: "#fff",
+          stopId: "other",
+          stopName: "other",
+          meters: 80,
+          headsign: "Sud",
+          depart: at + 4,
+          wait: 4,
+          clocks: [],
+        },
+      ]);
+      assert.equal(collapsed.length, 2);
+      const nord = collapsed.find((row) => fold(row.headsign) === "nord");
+      assert.ok(nord);
+      assert.equal(nord.stopId, "near");
     }
   });
 
