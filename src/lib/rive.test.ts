@@ -109,6 +109,10 @@ describe("hostile user input", () => {
     assert.match(html, /html\.night|--night|prefers-color-scheme:\s*dark/);
     assert.match(html, /html\.day|--paper/);
     assert.match(html, /id="refresh"|Actualiser/);
+    assert.match(html, /id="fold"/);
+    assert.match(html, /sheet-body|sheet\.folded/);
+    assert.match(src, /setSheetOpen/);
+    assert.match(src, /sheetOpen/);
     assert.match(src, /pickPois|pois/);
     assert.match(src, /const due = applyTripUpdatesToDue\(scheduled, state\.tripUpdates/);
     assert.match(src, /await loadRealtime\(\);/);
