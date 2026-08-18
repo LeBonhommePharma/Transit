@@ -30,6 +30,11 @@ enum RiveKitCheck {
     check("parse montreal french plan city", fr.city == "montreal")
     check("parse montreal french plan kind", fr.kind == "plan")
 
+    let levis = FoundationAssist.parseLocally("horaire Traverse Lévis")
+    check("parse levis maps to quebec", levis.city == "quebec")
+    let laval = FoundationAssist.parseLocally("horaire Montmorency stlaval")
+    check("parse stlaval maps to montreal", laval.city == "montreal")
+
     let bare = FoundationAssist.parseLocally("  Youville  ")
     check("parse bare stop has no city", bare.city == nil)
     check("parse bare stop is schedule", bare.kind == "schedule")

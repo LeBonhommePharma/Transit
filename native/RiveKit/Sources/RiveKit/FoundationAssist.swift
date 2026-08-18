@@ -10,10 +10,14 @@ public enum FoundationAssist {
   public static func parseLocally(_ text: String) -> TransitIntent {
     let folded = text.lowercased()
     var city: String?
-    if folded.contains("montréal") || folded.contains("montreal") || folded.contains("mtl") {
+    if folded.contains("montréal") || folded.contains("montreal") || folded.contains("mtl")
+      || folded.contains("stlaval")
+    {
       city = "montreal"
     }
-    if folded.contains("québec") || folded.contains("quebec") {
+    if folded.contains("québec") || folded.contains("quebec") || folded.contains("levis")
+      || folded.contains("lévis") || folded.contains("stlevis")
+    {
       city = "quebec"
     }
     let kind =
@@ -38,7 +42,7 @@ public enum FoundationAssist {
     do {
       let session = LanguageModelSession(
         instructions: """
-          You extract a public-transit lookup for Québec RTC or Montréal STM.
+          You extract a public-transit lookup for Québec (RTC, STLévis) or Montréal (STM, STL Laval).
           Reply with one line: city|kind|query
           city is quebec or montreal or -
           kind is schedule or plan

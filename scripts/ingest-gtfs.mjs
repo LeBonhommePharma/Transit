@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 /**
  * Build a compact linked atlas from official GTFS.
- * Quebec City = RTC, Montreal = STM.
+ * Québec = RTC + STLévis. Montréal = STM + STL Laval.
  *
- * Sources:
- *   RTC  https://cdn.rtcquebec.ca/Site_Internet/DonneesOuvertes/googletransit.zip
- *   STM  https://www.stm.info/sites/default/files/gtfs/gtfs_stm.zip
+ * Secondary feeds prefix every GTFS id so route 11 (RTC) and route 11
+ * (STLévis) never collide. Primary feed ids stay unprefixed.
  */
 import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -17,33 +16,67 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CACHE = join(ROOT, ".cache", "gtfs");
 const OUT = join(ROOT, "public", "data");
 
-const FEEDS = [
+const REGIONS = [
   {
     city: "quebec",
-    slug: "rtc",
-    zip: "rtc.zip",
-    url: "https://cdn.rtcquebec.ca/Site_Internet/DonneesOuvertes/googletransit.zip",
-    attribution:
-      "Intègre les Informations publiques du Réseau de transport de la Capitale.",
-    licenseUrl: "https://www.rtcquebec.ca/donnees-ouvertes",
+    name: "Québec",
     center: [-71.2082, 46.8131],
     zoom: 12.4,
-    name: "Québec",
-    agencyHint: "RTC",
+    feeds: [
+      {
+        slug: "rtc",
+        zip: "rtc.zip",
+        url: "https://cdn.rtcquebec.ca/Site_Internet/DonneesOuvertes/googletransit.zip",
+        attribution:
+          "Intègre les Informations publiques du Réseau de transport de la Capitale.",
+        licenseUrl: "https://www.rtcquebec.ca/donnees-ouvertes",
+        agencyHint: "RTC",
+        prefix: "",
+      },
+      {
+        slug: "stlevis",
+        zip: "stlevis.zip",
+        url: "https://www.stlevis.ca/sites/default/files/public/assets/gtfs/transit/gtfs_stlevis.zip",
+        attribution: "Horaires et parcours STLévis, données ouvertes.",
+        licenseUrl: "https://www.stlevis.ca/stlevis/donnees-ouvertes",
+        agencyHint: "STLévis",
+        prefix: "stlevis:",
+      },
+    ],
   },
   {
     city: "montreal",
-    slug: "stm",
-    zip: "stm.zip",
-    url: "https://www.stm.info/sites/default/files/gtfs/gtfs_stm.zip",
-    attribution: "Horaires et parcours STM, données ouvertes.",
-    licenseUrl: "https://www.stm.info/fr/a-propos/developpeurs",
+    name: "Montréal",
     center: [-73.5673, 45.5017],
     zoom: 12.1,
-    name: "Montréal",
-    agencyHint: "STM",
+    feeds: [
+      {
+        slug: "stm",
+        zip: "stm.zip",
+        url: "https://www.stm.info/sites/default/files/gtfs/gtfs_stm.zip",
+        attribution: "Horaires et parcours STM, données ouvertes.",
+        licenseUrl: "https://www.stm.info/fr/a-propos/developpeurs",
+        agencyHint: "STM",
+        prefix: "",
+      },
+      {
+        slug: "stl",
+        zip: "stl.zip",
+        url: "https://stlaval.ca/datas/opendata/GTF_STL.zip",
+        attribution: "Horaires et parcours STL Laval, données ouvertes.",
+        licenseUrl: "https://stlaval.ca/affaires/donnees-ouvertes",
+        agencyHint: "STL",
+        prefix: "stl:",
+      },
+    ],
   },
 ];
+
+function prefixed(prefix, id) {
+  if (!id) return id;
+  if (!prefix) return id;
+  return `${prefix}${id}`;
+}
 
 function parseCsvLine(line) {
   const out = [];
@@ -205,9 +238,10 @@ function pickHeadsign(counts) {
   return best;
 }
 
-async function ingestFeed(feed) {
+async function ingestFeed(region, feed) {
   const dir = ensureZip(feed);
-  console.log(`\nIngest ${feed.name} (${feed.slug})`);
+  const p = (id) => prefixed(feed.prefix, id);
+  console.log(`\nIngest ${region.name} / ${feed.agencyHint} (${feed.slug})`);
 
   const agencyRows = readCsvSync(join(dir, "agency.txt")).rows;
   const feedInfo = readCsvSync(join(dir, "feed_info.txt")).rows[0] || {};
@@ -223,12 +257,14 @@ async function ingestFeed(feed) {
   const routeById = new Map();
   for (const row of routeRows) {
     const route = {
-      id: row.route_id,
+      id: p(row.route_id),
       shortName: row.route_short_name || row.route_id,
       longName: row.route_long_name || row.route_desc || "",
       type: Number(row.route_type || 3),
       color: hexColor(row.route_color, row.route_type === "1" ? "#00B300" : "#013888"),
       textColor: hexColor(row.route_text_color, "#FFFFFF"),
+      agencyId: feed.agencyHint,
+      agencyName: agency.agency_name || feed.agencyHint,
       dirs: [],
     };
     routes.push(route);
@@ -239,14 +275,14 @@ async function ingestFeed(feed) {
   const shapeVotes = new Map();
   const headsignVotes = new Map();
   for (const row of tripRows) {
-    const routeId = row.route_id;
+    const routeId = p(row.route_id);
     if (!routeById.has(routeId)) continue;
     const dir = Number(row.direction_id || 0) ? 1 : 0;
-    const shapeId = row.shape_id || "";
+    const shapeId = p(row.shape_id || "");
     const headsign = row.trip_headsign || "";
-    trips.set(row.trip_id, {
+    trips.set(p(row.trip_id), {
       routeId,
-      serviceId: row.service_id,
+      serviceId: p(row.service_id),
       headsign,
       dir,
       shapeId,
@@ -283,14 +319,15 @@ async function ingestFeed(feed) {
 
   const shapePoints = new Map();
   await readCsvStream(join(dir, "shapes.txt"), (row) => {
-    if (!wantedShapes.has(row.shape_id)) return;
+    const shapeId = p(row.shape_id);
+    if (!wantedShapes.has(shapeId)) return;
     const lat = Number(row.shape_pt_lat);
     const lon = Number(row.shape_pt_lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
     const seq = Number(row.shape_pt_sequence || 0);
-    const list = shapePoints.get(row.shape_id) || [];
+    const list = shapePoints.get(shapeId) || [];
     list.push([seq, lon, lat]);
-    shapePoints.set(row.shape_id, list);
+    shapePoints.set(shapeId, list);
   });
 
   const shapeLine = new Map();
@@ -316,9 +353,9 @@ async function ingestFeed(feed) {
   let timeRows = 0;
   await readCsvStream(join(dir, "stop_times.txt"), (row) => {
     timeRows += 1;
-    const trip = trips.get(row.trip_id);
+    const trip = trips.get(p(row.trip_id));
     if (!trip) return;
-    const stopId = row.stop_id;
+    const stopId = p(row.stop_id);
     const dep = toMinutes(row.departure_time || row.arrival_time);
     const seq = Number(row.stop_sequence || 0);
     if (stopId && dep != null) {
@@ -346,11 +383,12 @@ async function ingestFeed(feed) {
       }
       routesForStop.add(trip.routeId);
     }
-    if (wantedTripStops.has(row.trip_id)) {
+    const tripId = p(row.trip_id);
+    if (wantedTripStops.has(tripId)) {
       const arr = toMinutes(row.arrival_time || row.departure_time);
-      const list = tripStopSeq.get(row.trip_id) || [];
+      const list = tripStopSeq.get(tripId) || [];
       list.push({ stopId, seq, min: arr ?? dep ?? 0 });
-      tripStopSeq.set(row.trip_id, list);
+      tripStopSeq.set(tripId, list);
     }
   });
   console.log(`  stop_times rows: ${timeRows.toLocaleString()}`);
@@ -383,15 +421,15 @@ async function ingestFeed(feed) {
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
     const kind = Number(row.location_type || 0);
     if (kind === 2) continue;
-    const parent = row.parent_station || undefined;
+    const parent = p(row.parent_station) || undefined;
     if (parent) {
       const kids = childrenOf.get(parent) || [];
-      kids.push(row.stop_id);
+      kids.push(p(row.stop_id));
       childrenOf.set(parent, kids);
     }
-    const ownRoutes = [...(stopRouteSet.get(row.stop_id) || [])];
+    const ownRoutes = [...(stopRouteSet.get(p(row.stop_id)) || [])];
     stops.push({
-      id: row.stop_id,
+      id: p(row.stop_id),
       code: row.stop_code || undefined,
       name: row.stop_name,
       lat: Math.round(lat * 1e6) / 1e6,
@@ -399,6 +437,7 @@ async function ingestFeed(feed) {
       parent,
       kind,
       wheel: Number(row.wheelchair_boarding || 0),
+      agencyId: feed.agencyHint,
       routes: ownRoutes.sort(),
     });
   }
@@ -454,7 +493,7 @@ async function ingestFeed(feed) {
   const calendar = calendarRows
     .filter((row) => row.service_id)
     .map((row) => ({
-      id: row.service_id,
+      id: p(row.service_id),
       days: [
         Number(row.monday || 0),
         Number(row.tuesday || 0),
@@ -471,7 +510,7 @@ async function ingestFeed(feed) {
   const exceptions = exceptionRows
     .filter((row) => row.service_id && row.date)
     .map((row) => ({
-      id: row.service_id,
+      id: p(row.service_id),
       date: row.date,
       type: Number(row.exception_type || 1),
     }));
@@ -479,16 +518,16 @@ async function ingestFeed(feed) {
   const transfers = transferRows
     .filter((row) => row.from_stop_id && row.to_stop_id)
     .map((row) => ({
-      from: row.from_stop_id,
-      to: row.to_stop_id,
+      from: p(row.from_stop_id),
+      to: p(row.to_stop_id),
       type: Number(row.transfer_type || 0),
       sec: Number(row.min_transfer_time || 0),
     }));
 
   const meta = {
-    city: feed.city,
-    name: feed.name,
-    agencyId: agency.agency_id || feed.agencyHint,
+    city: region.city,
+    name: region.name,
+    agencyId: feed.agencyHint,
     agencyName: agency.agency_name || feed.agencyHint,
     agencyUrl: agency.agency_url || feed.licenseUrl,
     timezone: agency.agency_timezone || "America/Montreal",
@@ -501,8 +540,8 @@ async function ingestFeed(feed) {
     attribution: feed.attribution,
     licenseUrl: feed.licenseUrl,
     sourceUrl: feed.url,
-    center: feed.center,
-    zoom: feed.zoom,
+    center: region.center,
+    zoom: region.zoom,
     counts: {
       routes: routes.length,
       stops: stops.length,
@@ -512,16 +551,85 @@ async function ingestFeed(feed) {
     },
   };
 
-  const dest = join(OUT, feed.city);
-  mkdirSync(dest, { recursive: true });
-  const atlas = { meta, routes, stops, calendar, exceptions, transfers, services: serviceIds };
-  writeJson(join(dest, "atlas.json"), atlas);
-  writeJson(join(dest, "timetable.json"), timetable);
-  writeJson(join(dest, "meta.json"), meta);
   console.log(
-    `  wrote ${feed.city}: ${routes.length} routes, ${stops.length} stops, ${serviceIds.length} services`,
+    `  packed ${feed.slug}: ${routes.length} routes, ${stops.length} stops, ${serviceIds.length} services`,
   );
-  return meta;
+  return { meta, routes, stops, calendar, exceptions, transfers, services: serviceIds, timetable };
+}
+
+function mergePieces(region, pieces) {
+  const routes = [];
+  const stops = [];
+  const calendar = [];
+  const exceptions = [];
+  const transfers = [];
+  const services = [];
+  const timetable = {};
+  let serviceOffset = 0;
+
+  for (const piece of pieces) {
+    routes.push(...piece.routes);
+    stops.push(...piece.stops);
+    calendar.push(...piece.calendar);
+    exceptions.push(...piece.exceptions);
+    transfers.push(...piece.transfers);
+    services.push(...piece.services);
+    for (const [stopId, entries] of Object.entries(piece.timetable)) {
+      const remapped = entries.map((entry) => ({
+        ...entry,
+        s: entry.s.map((idx) => idx + serviceOffset),
+      }));
+      if (timetable[stopId]) timetable[stopId].push(...remapped);
+      else timetable[stopId] = remapped;
+    }
+    serviceOffset += piece.services.length;
+  }
+
+  const primary = pieces[0].meta;
+  const lastEnd = pieces
+    .map((piece) => piece.meta.end)
+    .filter(Boolean)
+    .sort()
+    .at(-1) || primary.end;
+  const firstStart = pieces
+    .map((piece) => piece.meta.start)
+    .filter(Boolean)
+    .sort()[0] || primary.start;
+
+  return {
+    meta: {
+      ...primary,
+      city: region.city,
+      name: region.name,
+      center: region.center,
+      zoom: region.zoom,
+      start: firstStart,
+      end: lastEnd,
+      attribution: pieces.map((piece) => piece.meta.attribution).join(" "),
+      agencies: pieces.map((piece) => ({
+        id: piece.meta.agencyId,
+        name: piece.meta.agencyName,
+        url: piece.meta.agencyUrl,
+        attribution: piece.meta.attribution,
+        licenseUrl: piece.meta.licenseUrl,
+        sourceUrl: piece.meta.sourceUrl,
+      })),
+      counts: {
+        routes: routes.length,
+        stops: stops.length,
+        trips: pieces.reduce((n, piece) => n + piece.meta.counts.trips, 0),
+        services: services.length,
+        timetableStops: Object.keys(timetable).length,
+      },
+    },
+    routes,
+    stops,
+    calendar,
+    exceptions,
+    transfers,
+    services,
+    timetable,
+  };
 }
 
 function writeJson(path, data) {
@@ -532,8 +640,29 @@ function writeJson(path, data) {
 }
 
 const metas = [];
-for (const feed of FEEDS) {
-  metas.push(await ingestFeed(feed));
+for (const region of REGIONS) {
+  const pieces = [];
+  for (const feed of region.feeds) {
+    pieces.push(await ingestFeed(region, feed));
+  }
+  const merged = mergePieces(region, pieces);
+  const dest = join(OUT, region.city);
+  mkdirSync(dest, { recursive: true });
+  writeJson(join(dest, "atlas.json"), {
+    meta: merged.meta,
+    routes: merged.routes,
+    stops: merged.stops,
+    calendar: merged.calendar,
+    exceptions: merged.exceptions,
+    transfers: merged.transfers,
+    services: merged.services,
+  });
+  writeJson(join(dest, "timetable.json"), merged.timetable);
+  writeJson(join(dest, "meta.json"), merged.meta);
+  console.log(
+    `  wrote ${region.city}: ${merged.routes.length} routes, ${merged.stops.length} stops, ${merged.services.length} services`,
+  );
+  metas.push(merged.meta);
 }
 writeFileSync(
   join(OUT, "index.json"),

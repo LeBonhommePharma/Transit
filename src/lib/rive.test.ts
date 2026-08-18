@@ -311,6 +311,10 @@ describe("searchAtlas", () => {
         return /mcgill/i.test(text);
       }),
     );
+
+    const berriTop = berri.find((hit) => hit.kind === "stop");
+    assert.ok(berriTop && berriTop.kind === "stop");
+    assert.match(berriTop.stop.name, /berri-uqam/i);
   });
 });
 
@@ -440,7 +444,12 @@ describe("planTrip", () => {
   it("plans Youville area to Université Laval with legs whose routes exist", () => {
     const { atlas, timetable } = loadCity("quebec");
     const from = placeFromStop(firstStopHit(atlas, "Youville"));
-    const to = placeFromStop(firstStopHit(atlas, "Universite Laval"));
+    const lavalHit = searchAtlas(atlas, "Universite Laval", 20).find(
+      (hit) => hit.kind === "stop" && hit.stop.agencyId === "RTC",
+    );
+    const to = placeFromStop(
+      lavalHit && lavalHit.kind === "stop" ? lavalHit.stop : firstStopHit(atlas, "Universite Laval"),
+    );
     const itineraries = planTrip(
       atlas,
       timetable,
@@ -498,6 +507,14 @@ describe("planTrip", () => {
     assert.ok(stlRoutes.length > 0);
     assert.ok(stlevisRoutes.every((route) => route.id.startsWith("stlevis:")));
     assert.ok(stlRoutes.every((route) => route.id.startsWith("stl:")));
+    assert.ok(
+      stlevisRoutes.some((route) => route.dirs.some((dir) => dir.stops.length > 3)),
+      "STLévis routes must keep their stop sequences",
+    );
+    assert.ok(
+      stlRoutes.some((route) => route.dirs.some((dir) => dir.stops.length > 3)),
+      "STL routes must keep their stop sequences",
+    );
     assert.ok(quebec.atlas.meta.agencies?.some((agency) => agency.id === "STLévis"));
     assert.ok(montreal.atlas.meta.agencies?.some((agency) => agency.id === "STL"));
 
@@ -507,6 +524,36 @@ describe("planTrip", () => {
     assert.equal(traverse.agencyId, "STLévis");
     assert.ok(montmorency);
     assert.equal(montmorency.agencyId, "STL");
+  });
+
+  it("plans a STLévis ride from Cégep de Lévis to the Traverse", () => {
+    const { atlas, timetable } = loadCity("quebec");
+    const from = placeFromStop(firstStopHit(atlas, "Station Cegep de Levis"));
+    const to = placeFromStop(firstStopHit(atlas, "Terminus de la Traverse"));
+    const itineraries = planTrip(
+      atlas,
+      timetable,
+      from,
+      to,
+      minutesOfDay(clock),
+      activeServiceIndexes(atlas, clock),
+    );
+    assert.ok(itineraries.some((item) => item.legs.some((leg) => leg.kind === "transit" && leg.agencyId === "STLévis")));
+  });
+
+  it("plans an STL ride from Carrefour Laval to Terminus Montmorency", () => {
+    const { atlas, timetable } = loadCity("montreal");
+    const from = placeFromStop(firstStopHit(atlas, "Carrefour Laval"));
+    const to = placeFromStop(firstStopHit(atlas, "Terminus Montmorency"));
+    const itineraries = planTrip(
+      atlas,
+      timetable,
+      from,
+      to,
+      minutesOfDay(clock),
+      activeServiceIndexes(atlas, clock),
+    );
+    assert.ok(itineraries.some((item) => item.legs.some((leg) => leg.kind === "transit" && leg.agencyId === "STL")));
   });
 
   it("plans Berri area to McGill with legs whose routes exist", () => {

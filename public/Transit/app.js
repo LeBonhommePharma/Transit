@@ -36,12 +36,15 @@ function searchStops(atlas, query, limit = 7) {
     if (stop.kind === 2) continue;
     const name = fold(stop.name);
     const code = fold(stop.code || "");
+    const nameTokens = name.split(/\s+/).filter(Boolean);
     const tokens = q.split(/\s+/).filter((t) => t.length > 2);
     const hay = ` ${name} ${code} `;
     const tokenHits = tokens.filter((t) => hay.includes(` ${t} `)).length;
     let score = -1;
     if (code && code === q) score = 190;
     else if (name === q) score = 180;
+    else if (nameTokens.includes(q) && stop.kind === 1) score = 172;
+    else if (nameTokens.includes(q)) score = 155;
     else if (name.startsWith(q)) score = 140;
     else if (code.startsWith(q)) score = 130;
     else if (name.includes(q)) score = 70;

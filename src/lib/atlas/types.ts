@@ -15,6 +15,8 @@ export type AtlasRoute = {
   type: number;
   color: string;
   textColor: string;
+  agencyId: string;
+  agencyName: string;
   dirs: RouteDir[];
 };
 
@@ -27,8 +29,18 @@ export type AtlasStop = {
   parent?: string;
   kind: number;
   wheel: number;
+  agencyId?: string;
   routes: string[];
   children?: string[];
+};
+
+export type AgencyMeta = {
+  id: string;
+  name: string;
+  url: string;
+  attribution: string;
+  licenseUrl: string;
+  sourceUrl: string;
 };
 
 export type CalendarService = {
@@ -67,6 +79,7 @@ export type CityMeta = {
   attribution: string;
   licenseUrl: string;
   sourceUrl: string;
+  agencies?: AgencyMeta[];
   center: [number, number];
   zoom: number;
   counts: {
@@ -130,6 +143,7 @@ export type TripLeg =
       textColor: string;
       headsign: string;
       type: number;
+      agencyId?: string;
       from: Place;
       to: Place;
       depart: number;

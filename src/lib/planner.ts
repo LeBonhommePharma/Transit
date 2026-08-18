@@ -112,6 +112,7 @@ export function departuresAtStop(
     textColor: string;
     headsign: string;
     type: number;
+    agencyId?: string;
     depart: number;
     wait: number;
     times: number[];
@@ -132,6 +133,7 @@ export function departuresAtStop(
       textColor: route.textColor,
       headsign: entry.h || route.longName,
       type: route.type,
+      agencyId: route.agencyId,
       depart,
       wait: depart - now,
       times: wrapped,
@@ -211,7 +213,17 @@ export function planTrip(
   for (const origin of origins) {
     for (const dest of dests) {
       if (origin.id === dest.id) continue;
-      const shared = origin.routes.filter((id) => dest.routes.includes(id));
+      const destLine = new Set(
+        dest.routes
+          .map((id) => routes.get(id))
+          .filter((route): route is AtlasRoute => Boolean(route))
+          .map((route) => `${route.agencyId}|${route.shortName}`),
+      );
+      const shared = origin.routes.filter((id) => {
+        if (dest.routes.includes(id)) return true;
+        const route = routes.get(id);
+        return Boolean(route && destLine.has(`${route.agencyId}|${route.shortName}`));
+      });
       for (const routeId of shared) {
         const route = routes.get(routeId);
         if (!route) continue;
@@ -250,6 +262,7 @@ export function planTrip(
             textColor: route.textColor,
             headsign: next.headsign || dir.headsign,
             type: route.type,
+            agencyId: route.agencyId,
             from: oPlace,
             to: dPlace,
             depart: board,
@@ -349,7 +362,12 @@ export function planTrip(
                   bestT = { stop: transferStop, iT, jT };
                 }
               }
-              if (!bestT && (routeA.type === 1 || routeB.type === 1)) {
+              if (
+                !bestT &&
+                (routeA.type === 1 ||
+                  routeB.type === 1 ||
+                  routeA.agencyId !== routeB.agencyId)
+              ) {
                 let walkM = Infinity;
                 const aEnd = Math.min(dirA.stops.length, iA + 14);
                 for (let iT = iA + 1; iT < aEnd; iT++) {
@@ -421,6 +439,7 @@ export function planTrip(
                 textColor: routeA.textColor,
                 headsign: nextA.headsign || dirA.headsign,
                 type: routeA.type,
+                agencyId: routeA.agencyId,
                 from: oPlace,
                 to: tPlace,
                 depart: boardA,
@@ -438,6 +457,7 @@ export function planTrip(
                 textColor: routeB.textColor,
                 headsign: nextB.headsign || dirB.headsign,
                 type: routeB.type,
+                agencyId: routeB.agencyId,
                 from: boardPlace,
                 to: dPlace,
                 depart: boardB,

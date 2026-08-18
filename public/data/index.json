@@ -1,5 +1,5 @@
 {
-  "builtAt": "2026-08-18T05:32:24.507Z",
+  "builtAt": "2026-08-18T08:51:22.534Z",
   "cities": [
     {
       "city": "quebec",
@@ -11,10 +11,10 @@
       "lang": "fr",
       "phone": "+1-418-627-2511",
       "updated": "20260816",
-      "start": "20260816",
-      "end": "20261218",
+      "start": "20260615",
+      "end": "20261220",
       "version": "",
-      "attribution": "Intègre les Informations publiques du Réseau de transport de la Capitale.",
+      "attribution": "Intègre les Informations publiques du Réseau de transport de la Capitale. Horaires et parcours STLévis, données ouvertes.",
       "licenseUrl": "https://www.rtcquebec.ca/donnees-ouvertes",
       "sourceUrl": "https://cdn.rtcquebec.ca/Site_Internet/DonneesOuvertes/googletransit.zip",
       "center": [
@@ -23,12 +23,30 @@
       ],
       "zoom": 12.4,
       "counts": {
-        "routes": 187,
-        "stops": 4447,
-        "trips": 72770,
-        "services": 21,
-        "timetableStops": 4261
-      }
+        "routes": 271,
+        "stops": 6124,
+        "trips": 76224,
+        "services": 56,
+        "timetableStops": 5938
+      },
+      "agencies": [
+        {
+          "id": "RTC",
+          "name": "Réseau de transport de la capitale (RTC)",
+          "url": "https://www.rtcquebec.ca",
+          "attribution": "Intègre les Informations publiques du Réseau de transport de la Capitale.",
+          "licenseUrl": "https://www.rtcquebec.ca/donnees-ouvertes",
+          "sourceUrl": "https://cdn.rtcquebec.ca/Site_Internet/DonneesOuvertes/googletransit.zip"
+        },
+        {
+          "id": "STLévis",
+          "name": "Société de transport de Lévis",
+          "url": "http://www.stlevis.ca/",
+          "attribution": "Horaires et parcours STLévis, données ouvertes.",
+          "licenseUrl": "https://www.stlevis.ca/stlevis/donnees-ouvertes",
+          "sourceUrl": "https://www.stlevis.ca/sites/default/files/public/assets/gtfs/transit/gtfs_stlevis.zip"
+        }
+      ]
     },
     {
       "city": "montreal",
@@ -41,9 +59,9 @@
       "phone": "",
       "updated": "20260615",
       "start": "20260615",
-      "end": "20261025",
+      "end": "20261030",
       "version": "20260805110000_26S",
-      "attribution": "Horaires et parcours STM, données ouvertes.",
+      "attribution": "Horaires et parcours STM, données ouvertes. Horaires et parcours STL Laval, données ouvertes.",
       "licenseUrl": "https://www.stm.info/fr/a-propos/developpeurs",
       "sourceUrl": "https://www.stm.info/sites/default/files/gtfs/gtfs_stm.zip",
       "center": [
@@ -52,12 +70,30 @@
       ],
       "zoom": 12.1,
       "counts": {
-        "routes": 211,
-        "stops": 8746,
-        "trips": 148668,
-        "services": 96,
-        "timetableStops": 8678
-      }
+        "routes": 413,
+        "stops": 14439,
+        "trips": 159151,
+        "services": 102,
+        "timetableStops": 14368
+      },
+      "agencies": [
+        {
+          "id": "STM",
+          "name": "Société de transport de Montréal",
+          "url": "https://www.stm.info",
+          "attribution": "Horaires et parcours STM, données ouvertes.",
+          "licenseUrl": "https://www.stm.info/fr/a-propos/developpeurs",
+          "sourceUrl": "https://www.stm.info/sites/default/files/gtfs/gtfs_stm.zip"
+        },
+        {
+          "id": "STL",
+          "name": "Societe de transport de Laval",
+          "url": "https://stlaval.ca",
+          "attribution": "Horaires et parcours STL Laval, données ouvertes.",
+          "licenseUrl": "https://stlaval.ca/affaires/donnees-ouvertes",
+          "sourceUrl": "https://stlaval.ca/datas/opendata/GTF_STL.zip"
+        }
+      ]
     }
   ]
 }

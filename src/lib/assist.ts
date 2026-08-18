@@ -28,8 +28,13 @@ export function parseTransitQuery(text: string): TransitIntent {
   }
   const f = fold(text);
   let city: TransitIntent["city"] = null;
-  if (/\b(montreal|montreal|mtl)\b/.test(f) || f.includes("montreal")) city = "montreal";
-  if (/\b(quebec|quebec city|ville de quebec)\b/.test(f) || f.includes("quebec")) {
+  if (/\b(montreal|mtl|stlaval|stl laval)\b/.test(f) || f.includes("montreal")) {
+    city = "montreal";
+  }
+  if (
+    /\b(quebec|quebec city|ville de quebec|levis|stlevis)\b/.test(f) ||
+    f.includes("quebec")
+  ) {
     city = "quebec";
   }
   const kind: TransitIntent["kind"] = /\b(vers|to |from |itineraire|itinerary|trajet)\b/.test(f)

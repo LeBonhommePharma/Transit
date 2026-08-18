@@ -16,9 +16,9 @@ const plex = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Rive, atlas RTC et STM",
+  title: "Rive, atlas RTC, STLévis, STM et STL",
   description:
-    "Carte, trajectoires et horaires officiels du RTC à Québec et de la STM à Montréal. Gratuit, sans abonnement.",
+    "Carte, trajectoires et horaires officiels à Québec, Lévis, Montréal et Laval. Gratuit, sans abonnement.",
   icons: { icon: "/favicon.svg" },
 };
 

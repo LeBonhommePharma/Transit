@@ -7,10 +7,18 @@
       "timezone": "America/Montreal",
       "center": [-71.2082, 46.8131],
       "zoom": 12.4,
-      "gtfs": {
-        "url": "https://cdn.rtcquebec.ca/Site_Internet/DonneesOuvertes/googletransit.zip",
-        "attribution": "Informations publiques du Réseau de transport de la Capitale."
-      },
+      "gtfs": [
+        {
+          "agency": "RTC",
+          "url": "https://cdn.rtcquebec.ca/Site_Internet/DonneesOuvertes/googletransit.zip",
+          "attribution": "Informations publiques du Réseau de transport de la Capitale."
+        },
+        {
+          "agency": "STLévis",
+          "url": "https://www.stlevis.ca/sites/default/files/public/assets/gtfs/transit/gtfs_stlevis.zip",
+          "attribution": "Horaires et parcours STLévis, données ouvertes."
+        }
+      ],
       "bikes": {
         "label": "àVélo",
         "gbfs": "https://quebec.publicbikesystem.net/customer/gbfs/v3.0/gbfs.json"
@@ -22,10 +30,18 @@
       "timezone": "America/Montreal",
       "center": [-73.5673, 45.5017],
       "zoom": 12.1,
-      "gtfs": {
-        "url": "https://www.stm.info/sites/default/files/gtfs/gtfs_stm.zip",
-        "attribution": "Horaires et parcours STM, données ouvertes."
-      },
+      "gtfs": [
+        {
+          "agency": "STM",
+          "url": "https://www.stm.info/sites/default/files/gtfs/gtfs_stm.zip",
+          "attribution": "Horaires et parcours STM, données ouvertes."
+        },
+        {
+          "agency": "STL",
+          "url": "https://stlaval.ca/datas/opendata/GTF_STL.zip",
+          "attribution": "Horaires et parcours STL Laval, données ouvertes."
+        }
+      ],
       "bikes": {
         "label": "BIXI",
         "gbfs": "https://gbfs.velobixi.com/gbfs/gbfs.json"

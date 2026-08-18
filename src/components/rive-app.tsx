@@ -39,6 +39,7 @@ type Departure = {
   textColor: string;
   headsign: string;
   type: number;
+  agencyId?: string;
   depart: number;
   wait: number;
   times?: number[];
@@ -50,8 +51,8 @@ const CITIES: Array<{ id: CityId; label: string }> = [
 ];
 
 const HINTS: Record<CityId, [string, string]> = {
-  quebec: ["Place D'Youville", "Université Laval"],
-  montreal: ["Berri-UQAM", "McGill"],
+  quebec: ["Place D'Youville", "Terminus de la Traverse"],
+  montreal: ["Berri-UQAM", "Terminus Montmorency"],
 };
 
 function modeIcon(type: number, className: string) {
@@ -344,7 +345,12 @@ export function RiveApp() {
                         className="flex w-full items-center gap-3 px-2 py-2.5 text-left"
                       >
                         <MapPin size={16} className="text-[#1d1d1f]/50" />
-                        <span className="text-sm">{hit.stop.name}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm">{hit.stop.name}</span>
+                          {hit.stop.agencyId && (
+                            <span className="block text-[11px] text-black/40">{hit.stop.agencyId}</span>
+                          )}
+                        </span>
                       </button>
                     </li>
                   ) : (
@@ -355,7 +361,14 @@ export function RiveApp() {
                         className="flex w-full items-center gap-3 px-2 py-2.5 text-left"
                       >
                         <RouteBadge route={hit.route} />
-                        <span className="text-sm text-[#1d1d1f]/80">{hit.route.longName}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm text-[#1d1d1f]/80">
+                            {hit.route.longName || hit.route.shortName}
+                          </span>
+                          {hit.route.agencyId && (
+                            <span className="block text-[11px] text-black/40">{hit.route.agencyId}</span>
+                          )}
+                        </span>
                       </button>
                     </li>
                   ),
@@ -424,6 +437,7 @@ export function RiveApp() {
                             .slice(0, 5)
                             .map((t) => formatClock(t))
                             .join("  ")}
+                          {row.agencyId ? `  ${row.agencyId}` : ""}
                         </p>
                       </div>
                       <span
@@ -494,7 +508,10 @@ export function RiveApp() {
                               >
                                 {leg.shortName}
                               </span>
-                              <span className="text-black/70">{leg.headsign}</span>
+                              <span className="text-black/70">
+                                {leg.headsign}
+                                {leg.agencyId ? ` · ${leg.agencyId}` : ""}
+                              </span>
                             </span>
                           ),
                         )}
