@@ -110,8 +110,9 @@ describe("hostile user input", () => {
     assert.match(html, /html\.day|--paper/);
     assert.match(html, /id="refresh"|Actualiser/);
     assert.match(src, /pickPois|pois/);
-    assert.match(src, /applyTripUpdatesToDue\(scheduled|applyTripUpdatesToDue\(due/);
-    assert.match(src, /loadRealtime/);
+    assert.match(src, /const due = applyTripUpdatesToDue\(scheduled, state\.tripUpdates/);
+    assert.match(src, /await loadRealtime\(\);/);
+    assert.match(src, /async function loadRealtime/);
     assert.match(src, /parseRealtimePayload/);
     assert.match(src, /state\.vehicles = vehicles/);
     assert.match(src, /shouldFetchZip|userDeclared|feedIsStale/);
