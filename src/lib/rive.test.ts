@@ -1229,6 +1229,7 @@ describe("clock format", () => {
     assert.equal(prefersHour12("fr-CA"), false);
     assert.equal(parseClock24("16:00"), 960);
     assert.equal(parseClock24("4:00 PM"), 960);
+    assert.equal(parseClock24(formatClock(960, true)), 960);
     assert.equal(parseClock24("9:05"), 545);
     assert.equal(parseClock24("24:00"), null);
     assert.equal(parseClock24("nope"), null);
@@ -1551,6 +1552,7 @@ describe("watch remain", () => {
 
   it("drives the shipped static rive-kit remain and heading", async () => {
     const shipped = await import("../../public/Transit/rive-kit.js");
+    assert.equal(shipped.parseClock24(shipped.formatClock(960, true)), 960);
     assert.equal(shipped.remainMinutes([960], 950), 10);
     assert.equal(shipped.remainMinutes([], 950), null);
     assert.equal(shipped.headingFromSample(90).cardinal, "E");
