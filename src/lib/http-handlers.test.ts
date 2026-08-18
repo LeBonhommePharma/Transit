@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { GET as departuresGet } from "@/app/api/departures/route";
 import { POST as planPost } from "@/app/api/plan/route";
+import { POST as probePost, PUT as probePut } from "@/app/api/probe/route";
 import { GET as searchGet } from "@/app/api/search/route";
 import type { Atlas } from "./atlas/types";
 import { daytimeClock } from "./clock";
+import { decodePolyline } from "./geo";
 import { firstStopFromQuery, placeFromStop, searchAtlas } from "./search";
 
 function loadAtlas(city: "quebec" | "montreal"): Atlas {
@@ -167,5 +169,69 @@ describe("HTTP search / departures / plan handlers", () => {
     const first = (body.itineraries as Array<{ minutes?: unknown; legs?: unknown }>)[0];
     assert.equal(typeof first.minutes, "number");
     assert.ok(Array.isArray(first.legs));
+  });
+
+  it("fuses three agreeing probes and sets wait from clock-minutes, not officialDepart", async () => {
+    const atlas = loadAtlas("montreal");
+    const route = atlas.routes.find((item) => decodePolyline(item.dirs[0]?.line || "").length >= 8);
+    assert.ok(route);
+    const shape = decodePolyline(route.dirs[0].line);
+    const [lon, lat] = shape[1];
+    const at = Date.now();
+    for (const jitter of [0, 0.00004, -0.00004]) {
+      const res = await probePost(
+        new Request("http://rive.test/api/probe", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ lon: lon + jitter, lat, at, routeId: route.id }),
+        }),
+      );
+      const { status, body } = await readJson(res);
+      assert.equal(status, 200);
+      assert.equal(body.accepted, true);
+    }
+    const officialDepart = 800;
+    const nowMinutes = 790;
+    const expectedAlongMeters = 4000;
+    const put = await probePut(
+      new Request("http://rive.test/api/probe", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          routeId: route.id,
+          shape,
+          officialDepart,
+          now: nowMinutes,
+          expectedAlongMeters,
+          due: [
+            {
+              routeId: route.id,
+              shortName: route.shortName,
+              color: route.color,
+              textColor: route.textColor,
+              stopId: "probe-stop",
+              stopName: "probe",
+              meters: 0,
+              headsign: "test",
+              depart: officialDepart,
+              wait: officialDepart - nowMinutes,
+              clocks: ["13:20", "13:28"],
+            },
+          ],
+        }),
+      }),
+    );
+    const fusedBody = await readJson(put);
+    assert.equal(fusedBody.status, 200);
+    const fused = fusedBody.body.fused as { etaShiftMinutes?: number } | null;
+    assert.ok(fused);
+    assert.ok(typeof fused.etaShiftMinutes === "number");
+    assert.ok(fused.etaShiftMinutes > 0);
+    const due = fusedBody.body.due as Array<{ wait?: number; depart?: number; clocks?: string[] }>;
+    assert.ok(Array.isArray(due) && due[0]);
+    assert.equal(due[0].wait, officialDepart + fused.etaShiftMinutes - nowMinutes);
+    assert.equal(due[0].depart, officialDepart + fused.etaShiftMinutes);
+    assert.ok(Array.isArray(due[0].clocks));
+    assert.notEqual(due[0].clocks?.[0], "13:20");
   });
 });

@@ -24,6 +24,11 @@ export function emptyRiderStore(): RiderStore {
   return { here: null };
 }
 
+/** Only a real GPS/watch fix may enter the crowd-probe store. Map-center fallbacks never invent a bus. */
+export function isCrowdProbeSource(source: unknown): boolean {
+  return source === "gps";
+}
+
 /**
  * Accept a newer finite lon/lat as here. Older-than-current, too-old vs `now`,
  * or non-finite samples leave the store unchanged.

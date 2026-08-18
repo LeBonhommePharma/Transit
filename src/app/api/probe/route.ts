@@ -53,15 +53,34 @@ export async function PUT(request: Request) {
   if (!body.routeId || !Array.isArray(body.shape) || !Number.isFinite(body.officialDepart)) {
     return Response.json({ error: "Fusion incomplète." }, { status: 400 });
   }
-  const now = Number.isFinite(body.now) ? Number(body.now) : Date.now();
+  const clockNow = clockMinutesNow(body.now);
+  const epoch =
+    typeof body.now === "number" && Number.isFinite(body.now) && body.now > 10_000_000
+      ? body.now
+      : Date.now();
   const fused = fuseRouteProbes({
     store,
     routeId: body.routeId,
     shape: body.shape,
-    now,
+    now: epoch,
     officialDepart: Number(body.officialDepart),
     expectedAlongMeters: body.expectedAlongMeters,
   });
-  const due = Array.isArray(body.due) ? applyFusedEtaToDue(body.due, fused, Number(body.officialDepart)) : undefined;
+  const due = Array.isArray(body.due) ? applyFusedEtaToDue(body.due, fused, clockNow) : undefined;
   return Response.json({ fused, due: due ?? null, officialUnchanged: !fused });
+}
+
+function clockMinutesNow(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (Number.isFinite(n) && n >= 0 && n < 2880) return Math.trunc(n);
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/Montreal",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  return (
+    Number(parts.find((p) => p.type === "hour")?.value) * 60 +
+    Number(parts.find((p) => p.type === "minute")?.value)
+  );
 }

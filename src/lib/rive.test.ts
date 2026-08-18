@@ -12,7 +12,7 @@ import { resolveSearchAction } from "./search-submit";
 import { collapseDueByDirection, lineByShortNameOrColor, nearbyLines, nextDueOnLine } from "./lines";
 import { decodePolyline } from "./geo";
 import { headingFromSample } from "./heading";
-import { acceptRiderFix, emptyRiderStore } from "./rider";
+import { acceptRiderFix, emptyRiderStore, isCrowdProbeSource } from "./rider";
 import {
   applyFusedEtaToDue,
   emptyProbeStore,
@@ -1230,6 +1230,11 @@ describe("connected rider location", () => {
     assert.equal(store.here?.at, frozen?.at);
     store = acceptRiderFix(store, { lon: a.lon, lat: a.lat, at: 3_000 }, 3_000 + 6 * 60 * 1000);
     assert.equal(store.here?.at, frozen?.at);
+    assert.equal(isCrowdProbeSource("gps"), true);
+    assert.equal(isCrowdProbeSource("map"), false);
+    assert.equal(isCrowdProbeSource("ici"), false);
+    const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
+    assert.match(src, /isCrowdProbeSource\(next\.here\.source\)/);
   });
 });
 
@@ -1330,6 +1335,14 @@ describe("watch remain", () => {
       { minutes: 9, mix: "vélo" },
     ]);
     assert.equal(ranked[0].minutes, 9);
+    const overlay = shipped.applyFusedEtaToDue(
+      [{ routeId: "r", depart: 800, wait: 10, clocks: ["13:20", "13:28"] }],
+      { routeId: "r", etaShiftMinutes: 5 },
+      790,
+    );
+    assert.equal(overlay[0].wait, 15);
+    assert.equal(overlay[0].clocks[0], "13:25");
+    assert.equal(shipped.isCrowdProbeSource("map"), false);
   });
 });
 
