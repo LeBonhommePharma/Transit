@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { daytimeClock } from "./clock";
 import { formatShownLine, shownConditions } from "./conditions";
-import { renderTransitSnapshot, runTui } from "./tui";
+import { loadTuiWeather, openMeteoAirUrl, openMeteoForecastUrl, renderTransitSnapshot, runTui } from "./tui";
 
 const WET = {
   current: {
@@ -53,6 +53,23 @@ describe("Transit TUI", () => {
     assert.ok(cities.includes("quebec"));
     const src = readFileSync(join(process.cwd(), "src", "lib", "tui.ts"), "utf8");
     assert.match(src, /index\.json/);
+    const forecast = openMeteoForecastUrl(46.8131, -71.2082);
+    const air = openMeteoAirUrl(46.8131, -71.2082);
+    assert.match(forecast, /api\.open-meteo\.com/);
+    assert.match(air, /air-quality-api\.open-meteo\.com/);
+    assert.equal(openMeteoForecastUrl(Number.NaN, -71), "");
+    const fetched = await loadTuiWeather({
+      lat: 46.8131,
+      lon: -71.2082,
+      fetchJson: async (url) => {
+        if (url.includes("air-quality")) return { current: { european_aqi: 61 } };
+        return { current: { precipitation: 2.1, rain: 2.1, temperature_2m: 3, wind_speed_10m: 24, wind_direction_10m: 90, uv_index: 5 } };
+      },
+    });
+    const live = shownConditions(fetched);
+    assert.ok(live.precip && live.aqi && live.wind && live.uv);
+    const junkEnv = await loadTuiWeather({ envJson: "{not-json" });
+    assert.equal(junkEnv, null);
   });
 
   it("does not crash on a missing city or stop", async () => {
@@ -77,8 +94,9 @@ describe("Transit TUI", () => {
       "quebec",
       "Youville",
     ];
-    const a = spawnSync(process.execPath, cmd, { encoding: "utf8", cwd: process.cwd(), env: { ...process.env } });
-    const b = spawnSync(process.execPath, cmd, { encoding: "utf8", cwd: process.cwd(), env: { ...process.env } });
+    const env = { ...process.env, RIVE_WEATHER_OFF: "1" };
+    const a = spawnSync(process.execPath, cmd, { encoding: "utf8", cwd: process.cwd(), env });
+    const b = spawnSync(process.execPath, cmd, { encoding: "utf8", cwd: process.cwd(), env });
     assert.equal(a.status, 0, a.stderr);
     assert.equal(b.status, 0, b.stderr);
     assert.match(a.stdout, /Rive/);

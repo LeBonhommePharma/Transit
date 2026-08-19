@@ -90,21 +90,77 @@ export function renderTransitSnapshot(opts: {
   return lines.join("\n");
 }
 
+export function openMeteoForecastUrl(lat: unknown, lon: unknown): string {
+  const y = Number(lat);
+  const x = Number(lon);
+  if (!Number.isFinite(y) || !Number.isFinite(x) || y < -90 || y > 90 || x < -180 || x > 180) return "";
+  return `https://api.open-meteo.com/v1/forecast?latitude=${y}&longitude=${x}&current=temperature_2m,precipitation,rain,snowfall,weather_code,wind_speed_10m,wind_direction_10m,visibility,uv_index&hourly=precipitation,uv_index&forecast_hours=3&timezone=America%2FMontreal`;
+}
+
+export function openMeteoAirUrl(lat: unknown, lon: unknown): string {
+  const y = Number(lat);
+  const x = Number(lon);
+  if (!Number.isFinite(y) || !Number.isFinite(x) || y < -90 || y > 90 || x < -180 || x > 180) return "";
+  return `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${y}&longitude=${x}&current=european_aqi`;
+}
+
+export async function loadTuiWeather(opts: {
+  envJson?: string | null;
+  lat?: unknown;
+  lon?: unknown;
+  fetchJson?: (url: string) => Promise<unknown>;
+}): Promise<unknown> {
+  if (opts.envJson) {
+    try {
+      return JSON.parse(opts.envJson);
+    } catch {
+      return null;
+    }
+  }
+  const forecast = openMeteoForecastUrl(opts.lat, opts.lon);
+  const air = openMeteoAirUrl(opts.lat, opts.lon);
+  if (!forecast || !air || !opts.fetchJson) return null;
+  const grab = async (url: string) => {
+    try {
+      return await opts.fetchJson!(url);
+    } catch {
+      return null;
+    }
+  };
+  const [wx, aqi] = await Promise.all([grab(forecast), grab(air)]);
+  const wxObj = wx && typeof wx === "object" ? (wx as Record<string, unknown>) : null;
+  const aqiObj = aqi && typeof aqi === "object" ? (aqi as Record<string, unknown>) : null;
+  if (!wxObj && !aqiObj) return null;
+  const current = {
+    ...((wxObj?.current && typeof wxObj.current === "object" ? wxObj.current : {}) as object),
+    ...((aqiObj?.current && typeof aqiObj.current === "object" ? aqiObj.current : {}) as object),
+  };
+  return { ...(wxObj || {}), current, hourly: wxObj?.hourly };
+}
+
+async function liveFetchJson(url: string): Promise<unknown> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(1800) });
+  if (!res.ok) return null;
+  return res.json();
+}
+
 export async function runTui(
   argv: string[],
   io: { log: (s: string) => void; error: (s: string) => void } = console,
+  hooks: { fetchJson?: (url: string) => Promise<unknown>; now?: Date } = {},
 ): Promise<number> {
   const city = argv[0];
   const query = argv.slice(1).join(" ").trim();
-  let weather: unknown = null;
-  if (process.env.RIVE_WEATHER_JSON) {
-    try {
-      weather = JSON.parse(process.env.RIVE_WEATHER_JSON);
-    } catch {
-      weather = null;
-    }
-  }
-  const text = renderTransitSnapshot({ city, query, weather, now: new Date() });
+  const pack = typeof city === "string" ? loadCity(city.trim().toLowerCase()) : null;
+  const center = pack?.atlas.meta.center;
+  const liveOff = process.env.RIVE_WEATHER_OFF === "1";
+  const weather = await loadTuiWeather({
+    envJson: process.env.RIVE_WEATHER_JSON,
+    lat: center?.[1],
+    lon: center?.[0],
+    fetchJson: liveOff ? undefined : (hooks.fetchJson ?? liveFetchJson),
+  });
+  const text = renderTransitSnapshot({ city, query, weather, now: hooks.now ?? new Date() });
   io.log(text);
   if (!city || !CITIES.has(String(city).toLowerCase()) || !query || text.includes("introuvable")) {
     io.error("usage: rive <city> <stop>");
