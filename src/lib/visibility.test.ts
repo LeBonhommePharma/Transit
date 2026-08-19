@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import { MOTION_CORE_CAP, MOTION_FAR_CAP, MOTION_MID_CAP, overpassMotionQuery } from "./buildings";
 import {
   DEFAULT_VISIBILITY_M,
+  MAX_VISIBILITY_M,
   bboxSpanMeters,
   continueExtentMeters,
   loadExtentMeters,
@@ -130,6 +131,22 @@ describe("motion-view working set", () => {
     assert.doesNotMatch(src, /360 \/ 2 \*\* state\.camera\.zoom/);
     assert.match(src, /function drawBuildings/);
     assert.doesNotMatch(src, /clip.*visibility|visibilityM && haversine/);
+  });
+
+  it("still builds a motion query when continue radius exceeds the Overpass around cap", async () => {
+    const vis = visibilityMetersFromWeather({ visibilityM: MAX_VISIBILITY_M, condition: "clear" });
+    const load = loadExtentMeters(vis);
+    const cont = continueExtentMeters(vis);
+    assert.ok(cont > 25_000);
+    const q = overpassMotionQuery(QC, load, cont);
+    assert.ok(q.length > 20);
+    assert.match(q, /around:/);
+    assert.match(q, /out tags geom/);
+    const js = join(process.cwd(), "public", "Transit", "buildings.js");
+    const shipped = (await import(pathToFileURL(js).href)) as { overpassMotionQuery: typeof overpassMotionQuery };
+    const shippedQ = shipped.overpassMotionQuery(QC, load, cont);
+    assert.ok(shippedQ.length > 20);
+    assert.match(shippedQ, /around:25000,/);
   });
 
   it("drives the shipped Overpass motion query with split around: budgets", async () => {

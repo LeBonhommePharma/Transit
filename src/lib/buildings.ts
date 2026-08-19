@@ -146,7 +146,9 @@ function coarseCoord(n: number, step = 0.002): number {
 }
 
 function finiteRadiusM(n: unknown): number | null {
-  if (typeof n !== "number" || !Number.isFinite(n) || n < 50 || n > 25_000) return null;
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return null;
+  if (n < 50) return 50;
+  if (n > 25_000) return 25_000;
   return n;
 }
 
