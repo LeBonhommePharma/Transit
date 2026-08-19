@@ -42,7 +42,8 @@ describe("city auto-detect", () => {
     assert.match(html, /data-visit="levis"/);
     assert.match(html, /data-visit="laval"/);
     assert.match(html, /data-visit="longueuil"/);
-    assert.match(html, /flex-wrap:\s*wrap/);
+    assert.match(html, /\.cities\s*\{[^}]*flex-wrap:\s*nowrap/);
+    assert.match(html, /\.cities\s*\{[^}]*overflow-x:\s*auto/);
     const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
     assert.match(src, /detectCity/);
     assert.match(src, /cityAfterHereSample/);

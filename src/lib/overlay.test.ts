@@ -220,7 +220,7 @@ describe("overlay polish and escape", () => {
     const html = readFileSync(join(process.cwd(), "public", "Transit", "index.html"), "utf8");
     for (const id of ["cities", "sheet", "dest", "at", "heading", "wx", "nav", "map-hud", "fold", "perms"]) {
       if (id === "cities") {
-        assert.match(html, /class="cities"/);
+        assert.match(html, /class="cities[ "]/);
       } else {
         assert.match(html, new RegExp(`id="${id}"`));
       }

@@ -109,7 +109,7 @@ describe("hostile user input", () => {
     const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
     assert.match(html, /id="here"/);
     assert.match(html, /Où vas-tu|whereTo|id="dest"/);
-    assert.match(html, /Horaire ailleurs/);
+    assert.match(html, /Horaire ailleurs/i);
     assert.match(html, /type="time"|id="at"/);
     assert.match(html, /id="nearby"/);
     assert.match(src, /geolocation/);

@@ -8,6 +8,8 @@
   --muted: #475569;
   --sodium: #0e7490;
   --glass: rgb(248 250 252 / 0.92);
+  --well: rgb(15 23 42 / 0.05);
+  --well-hi: rgb(15 23 42 / 0.09);
   --hairline: rgb(15 23 42 / 0.12);
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -17,6 +19,9 @@
   --color-paper: var(--paper);
   --color-sodium: var(--sodium);
   --color-muted: var(--muted);
+  --color-hairline: var(--hairline);
+  --color-well: var(--well);
+  --color-well-hi: var(--well-hi);
   --font-sans: "Outfit", "Outfit Fallback", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", "IBM Plex Mono Fallback", ui-monospace, monospace;
 }
