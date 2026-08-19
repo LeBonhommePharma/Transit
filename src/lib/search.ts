@@ -300,11 +300,16 @@ export function cityAfterHereSample(input: {
   explicitCity?: unknown;
   detectedCity?: unknown;
   locked?: unknown;
-}): string | null {
+  wantSnap?: unknown;
+}): { city: string | null; snap: boolean } {
   const explicit = typeof input?.explicitCity === "string" && input.explicitCity ? input.explicitCity : null;
   const detected = typeof input?.detectedCity === "string" && input.detectedCity ? input.detectedCity : null;
-  if (input?.locked && explicit) return explicit;
-  return detected || explicit;
+  const wantSnap = Boolean(input?.wantSnap);
+  if (input?.locked && explicit) {
+    const outside = !detected || detected !== explicit;
+    return { city: explicit, snap: wantSnap && !outside };
+  }
+  return { city: detected || explicit, snap: wantSnap };
 }
 
 export function isFinitePoint(point: { lon?: unknown; lat?: unknown } | null | undefined): point is {

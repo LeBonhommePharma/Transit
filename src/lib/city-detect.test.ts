@@ -60,23 +60,30 @@ describe("city auto-detect", () => {
     const centers = supportedCityCenters();
     for (const explicit of ["sherbrooke", "trois-rivieres"] as const) {
       for (const detected of ["quebec", "montreal"] as const) {
-        const input = { explicitCity: explicit, detectedCity: detected, locked: true };
-        assert.equal(cityAfterHereSample(input), explicit);
-        assert.equal(shipped.cityAfterHereSample(input), explicit);
+        const input = { explicitCity: explicit, detectedCity: detected, locked: true, wantSnap: true };
+        assert.equal(cityAfterHereSample(input).city, explicit);
+        assert.equal(cityAfterHereSample(input).snap, false);
+        assert.equal(shipped.cityAfterHereSample(input).city, explicit);
+        assert.equal(shipped.cityAfterHereSample(input).snap, false);
         assert.equal(cityForPoint(centers[detected].lon, centers[detected].lat), detected);
       }
+      const inside = { explicitCity: explicit, detectedCity: explicit, locked: true, wantSnap: true };
+      assert.equal(cityAfterHereSample(inside).city, explicit);
+      assert.equal(cityAfterHereSample(inside).snap, true);
+      assert.equal(shipped.cityAfterHereSample(inside).snap, true);
     }
-    assert.equal(
-      cityAfterHereSample({ explicitCity: "quebec", detectedCity: "montreal", locked: false }),
-      "montreal",
-    );
-    assert.equal(
-      shipped.cityAfterHereSample({ explicitCity: "quebec", detectedCity: "montreal", locked: false }),
-      "montreal",
-    );
-    assert.equal(cityAfterHereSample({ explicitCity: "quebec", detectedCity: null, locked: false }), "quebec");
+    const unlocked = { explicitCity: "quebec", detectedCity: "montreal", locked: false, wantSnap: true };
+    assert.equal(cityAfterHereSample(unlocked).city, "montreal");
+    assert.equal(cityAfterHereSample(unlocked).snap, true);
+    assert.equal(shipped.cityAfterHereSample(unlocked).city, "montreal");
+    assert.equal(shipped.cityAfterHereSample(unlocked).snap, true);
+    assert.equal(cityAfterHereSample({ explicitCity: "quebec", detectedCity: null, locked: false }).city, "quebec");
+    assert.equal(cityAfterHereSample({ explicitCity: "sherbrooke", detectedCity: null, locked: true, wantSnap: true }).snap, false);
     assert.equal(resolveCityRequest("levis").city, "quebec");
     assert.equal(resolveCityRequest("laval").city, "montreal");
+    const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
+    assert.match(src, /const \{ city, snap \} = cityAfterHereSample/);
+    assert.match(src, /state\.city = city;\s*state\.atlas = atlas;\s*state\.timetable = timetable;\s*paintCityButtons\(\);/s);
   });
 
   it("loads packed Sherbrooke and Trois-Rivières atlases as their own cities", () => {
