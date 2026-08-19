@@ -11,6 +11,36 @@ const QC = { lon: -71.2082, lat: 46.8131 };
 const MTL = { lon: -73.5673, lat: 45.5017 };
 const SHB = { lon: -71.8908, lat: 45.4042 };
 const TRV = { lon: -72.5415, lat: 46.3432 };
+/** Places that share a packed atlas. Chip opens the parent city and pans here. */
+export const CITY_VISITS = [
+  { id: "levis", label: "Lévis", city: "quebec", lon: -71.178, lat: 46.803, zoom: 12.8 },
+  { id: "laval", label: "Laval", city: "montreal", lon: -73.742, lat: 45.57, zoom: 12.4 },
+  { id: "longueuil", label: "Longueuil", city: "montreal", lon: -73.508, lat: 45.531, zoom: 12.6 },
+];
+
+export function resolveCityRequest(raw, visits = CITY_VISITS) {
+  if (typeof raw !== "string") return { city: "", visit: null };
+  const id = raw.trim().toLowerCase();
+  if (!id) return { city: "", visit: null };
+  const visit = visits.find((item) => item.id === id) || null;
+  return visit ? { city: visit.city, visit } : { city: id, visit: null };
+}
+
+export function chipsForCities(cities, visits = CITY_VISITS) {
+  const out = [];
+  if (!Array.isArray(cities)) return out;
+  for (const item of cities) {
+    if (!item || typeof item.city !== "string" || !item.city) continue;
+    const label = typeof item.name === "string" && item.name ? item.name : item.city;
+    out.push({ kind: "city", id: item.city, city: item.city, label });
+    for (const visit of visits) {
+      if (visit.city === item.city) {
+        out.push({ kind: "visit", id: visit.id, city: visit.city, label: visit.label, visit });
+      }
+    }
+  }
+  return out;
+}
 // Fallback matches public/data/index.json cities[].center until setServedCenters().
 let probeCenters = [QC, MTL, SHB, TRV];
 const BUS_M_PER_MIN = 360;

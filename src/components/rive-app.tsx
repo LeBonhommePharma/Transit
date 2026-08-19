@@ -28,7 +28,7 @@ import type {
 import type { Poi } from "@/lib/poi";
 import { understandQuery, type CityHint } from "@/lib/assist";
 import { t, type MessageId } from "@/lib/i18n";
-import { placeFromStop, searchAtlas } from "@/lib/search";
+import { chipsForCities, placeFromStop, searchAtlas, type CityVisit } from "@/lib/search";
 import { resolveSearchAction } from "@/lib/search-submit";
 import { formatClock, formatRelative } from "@/lib/time";
 import { fetchJson, readJsonResponse } from "@/lib/client-http";
@@ -64,6 +64,7 @@ export function RiveApp() {
   const [locale] = useState("fr");
   const [cities, setCities] = useState(FALLBACK_CITIES);
   const [city, setCity] = useState<CityId>("quebec");
+  const [visit, setVisit] = useState<CityVisit | null>(null);
   const [atlas, setAtlas] = useState<Atlas | null>(null);
   const [pois, setPois] = useState<Poi[]>([]);
   const [loadError, setLoadError] = useState("");
@@ -84,6 +85,10 @@ export function RiveApp() {
   );
 
   const tr = (id: MessageId) => t(id, locale);
+  const chips = useMemo(
+    () => chipsForCities(cities.map((item) => ({ city: item.id, name: item.label }))),
+    [cities],
+  );
 
   useEffect(() => {
     fetchJson<{ cities?: Array<{ city?: unknown; name?: unknown }> }>("/data/index.json", 2 * 1024 * 1024)
@@ -274,6 +279,7 @@ export function RiveApp() {
       <MapView
         city={city}
         atlas={atlas}
+        focus={visit}
         selectedStop={selectedStop}
         selectedRouteId={selectedRouteId}
         itinerary={activeItinerary}
@@ -286,15 +292,16 @@ export function RiveApp() {
 
       <div className="pointer-events-none absolute inset-0 z-[2]">
         <div className="pointer-events-auto absolute left-[max(0.75rem,env(safe-area-inset-left))] right-[max(7.5rem,calc(env(safe-area-inset-right)+7.25rem))] top-[max(0.65rem,env(safe-area-inset-top))]">
-          <div className="glass flex max-w-full flex-nowrap justify-start overflow-x-auto rounded-[22px] p-1 backdrop-blur-xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {cities.map((item) => {
-              const on = item.id === city;
+          <div className="glass flex max-w-full flex-wrap justify-start rounded-[22px] p-1 backdrop-blur-xl">
+            {chips.map((item) => {
+              const on = item.kind === "visit" ? visit?.id === item.id : item.city === city && !visit;
               return (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => {
-                    setCity(item.id);
+                    setCity(item.city);
+                    setVisit(item.visit || null);
                     setAtlas(null);
                     setLoadError("");
                     setItineraries([]);
@@ -323,7 +330,7 @@ export function RiveApp() {
 
         <form
           onSubmit={onSearch}
-          className="pointer-events-auto absolute left-4 top-28 w-[min(100%-2rem,380px)] md:left-6"
+          className="pointer-events-auto absolute left-4 top-36 w-[min(100%-2rem,380px)] md:left-6"
         >
           <div className="glass rounded-[28px] p-3 backdrop-blur-xl">
             <div className="flex items-center justify-between px-2 pb-2">

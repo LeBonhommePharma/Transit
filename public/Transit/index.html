@@ -152,7 +152,7 @@
         left: var(--safe-left);
         right: calc(var(--safe-right) + var(--rail));
         display: flex;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         justify-content: flex-start;
         width: auto;
         max-width: none;
@@ -162,12 +162,10 @@
         background: var(--glass);
         border: 1px solid var(--hair);
         box-shadow: var(--shadow);
-        overflow-x: auto;
-        overscroll-behavior: contain;
-        scrollbar-width: none;
+        overflow: visible;
+        row-gap: 2px;
         z-index: var(--z-rail);
       }
-      .cities::-webkit-scrollbar { display: none; }
       .cities button {
         border: 0;
         background: transparent;
@@ -187,7 +185,7 @@
       .sheet {
         position: absolute;
         left: var(--safe-left);
-        top: calc(var(--safe-top) + 56px);
+        top: calc(var(--safe-top) + 108px);
         width: min(400px, calc(100% - var(--safe-left) - var(--safe-right)));
         background: var(--glass);
         border: 1px solid var(--hair);
@@ -478,7 +476,10 @@
       <a class="skip" href="#dest">Aller à la destination</a>
       <div class="cities" role="tablist">
         <button type="button" id="btn-quebec" data-city="quebec" class="on">Québec</button>
+        <button type="button" id="btn-levis" data-city="quebec" data-visit="levis">Lévis</button>
         <button type="button" id="btn-montreal" data-city="montreal">Montréal</button>
+        <button type="button" id="btn-laval" data-city="montreal" data-visit="laval">Laval</button>
+        <button type="button" id="btn-longueuil" data-city="montreal" data-visit="longueuil">Longueuil</button>
         <button type="button" id="btn-sherbrooke" data-city="sherbrooke">Sherbrooke</button>
         <button type="button" id="btn-trois-rivieres" data-city="trois-rivieres">Trois-Rivières</button>
       </div>

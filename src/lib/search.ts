@@ -219,6 +219,56 @@ export function supportedCityCenters(): Record<string, { lon: number; lat: numbe
   };
 }
 
+/** Places that share a packed atlas. Chip opens the parent city and pans here. */
+export type CityVisit = {
+  id: string;
+  label: string;
+  city: string;
+  lon: number;
+  lat: number;
+  zoom: number;
+};
+
+export const CITY_VISITS: CityVisit[] = [
+  { id: "levis", label: "Lévis", city: "quebec", lon: -71.178, lat: 46.803, zoom: 12.8 },
+  { id: "laval", label: "Laval", city: "montreal", lon: -73.742, lat: 45.57, zoom: 12.4 },
+  { id: "longueuil", label: "Longueuil", city: "montreal", lon: -73.508, lat: 45.531, zoom: 12.6 },
+];
+
+export type CityChip = {
+  kind: "city" | "visit";
+  id: string;
+  city: string;
+  label: string;
+  visit?: CityVisit;
+};
+
+export function resolveCityRequest(raw: unknown, visits: CityVisit[] = CITY_VISITS): { city: string; visit: CityVisit | null } {
+  if (typeof raw !== "string") return { city: "", visit: null };
+  const id = raw.trim().toLowerCase();
+  if (!id) return { city: "", visit: null };
+  const visit = visits.find((item) => item.id === id) || null;
+  return visit ? { city: visit.city, visit } : { city: id, visit: null };
+}
+
+export function chipsForCities(
+  cities: Array<{ city?: unknown; name?: unknown }>,
+  visits: CityVisit[] = CITY_VISITS,
+): CityChip[] {
+  const out: CityChip[] = [];
+  for (const item of cities) {
+    if (typeof item.city !== "string" || !item.city) continue;
+    const label = typeof item.name === "string" && item.name ? item.name : item.city;
+    out.push({ kind: "city", id: item.city, city: item.city, label });
+    for (const visit of visits) {
+      if (visit.city === item.city) {
+        out.push({ kind: "visit", id: visit.id, city: visit.city, label: visit.label, visit });
+      }
+    }
+  }
+  return out;
+}
+
 /** Supported city containing the point, or null. Never invents the nearest city as here. */
 export function cityForPoint(
   lon: unknown,

@@ -19,6 +19,7 @@ const STYLE = "https://tiles.openfreemap.org/styles/positron";
 type Props = {
   city: CityId;
   atlas: Atlas | null;
+  focus?: { lon: number; lat: number; zoom?: number } | null;
   selectedStop?: AtlasStop | null;
   selectedRouteId?: string | null;
   itinerary?: Itinerary | null;
@@ -90,6 +91,7 @@ function buildStopCollection(atlas: Atlas): GeoJSON.FeatureCollection {
 export function MapView({
   city,
   atlas,
+  focus,
   selectedStop,
   selectedRouteId,
   itinerary,
@@ -288,14 +290,14 @@ export function MapView({
       routes?.setData(buildRouteCollection(atlas));
       stops?.setData(buildStopCollection(atlas));
       map.easeTo({
-        center: atlas.meta.center,
-        zoom: atlas.meta.zoom,
+        center: focus ? [focus.lon, focus.lat] : atlas.meta.center,
+        zoom: focus?.zoom ?? atlas.meta.zoom,
         duration: 900,
       });
     };
     if (map.isStyleLoaded()) apply();
     else map.once("load", apply);
-  }, [atlas, city]);
+  }, [atlas, city, focus]);
 
   useEffect(() => {
     const map = mapRef.current;

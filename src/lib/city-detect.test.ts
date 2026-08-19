@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, it } from "node:test";
-import { CITY_MEMBERSHIP_M, cityForPoint, supportedCityCenters } from "./search";
+import { CITY_MEMBERSHIP_M, chipsForCities, cityForPoint, resolveCityRequest, supportedCityCenters } from "./search";
 
 describe("city auto-detect", () => {
   it("maps a point near a supported center and refuses far or junk points", () => {
@@ -37,9 +37,49 @@ describe("city auto-detect", () => {
     assert.match(html, /data-city="montreal"/);
     assert.match(html, /data-city="sherbrooke"/);
     assert.match(html, /data-city="trois-rivieres"/);
+    assert.match(html, /data-visit="levis"/);
+    assert.match(html, /data-visit="laval"/);
+    assert.match(html, /data-visit="longueuil"/);
+    assert.match(html, /flex-wrap:\s*wrap/);
     const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
     assert.match(src, /detectCity/);
     assert.match(src, /if \(city && city !== state\.city\)/);
     assert.doesNotMatch(src, /let best = state\.city/);
+    assert.match(src, /chipsForCities/);
+    assert.match(src, /resolveCityRequest/);
+  });
+
+  it("inserts Lévis, Laval and Longueuil after their packed parent cities", () => {
+    const chips = chipsForCities([
+      { city: "quebec", name: "Québec" },
+      { city: "montreal", name: "Montréal" },
+      { city: "sherbrooke", name: "Sherbrooke" },
+      { city: "trois-rivieres", name: "Trois-Rivières" },
+    ]);
+    const labels = chips.map((chip) => chip.label);
+    assert.ok(labels.includes("Québec"));
+    assert.ok(labels.includes("Lévis"));
+    assert.ok(labels.includes("Montréal"));
+    assert.ok(labels.includes("Laval"));
+    assert.ok(labels.includes("Longueuil"));
+    assert.ok(labels.includes("Sherbrooke"));
+    assert.ok(labels.includes("Trois-Rivières"));
+    assert.ok(labels.indexOf("Lévis") > labels.indexOf("Québec"));
+    assert.ok(labels.indexOf("Lévis") < labels.indexOf("Montréal"));
+    assert.equal(resolveCityRequest("levis").city, "quebec");
+    assert.equal(resolveCityRequest("laval").visit?.id, "laval");
+    assert.equal(resolveCityRequest("longueuil").city, "montreal");
+    assert.equal(resolveCityRequest("sherbrooke").city, "sherbrooke");
+    assert.equal(resolveCityRequest("sherbrooke").visit, null);
+  });
+
+  it("drives the shipped chip helpers for the same visit list", async () => {
+    const shipped = (await import(pathToFileURL(join(process.cwd(), "public", "Transit", "rive-kit.js")).href)) as {
+      chipsForCities: typeof chipsForCities;
+      resolveCityRequest: typeof resolveCityRequest;
+    };
+    const chips = shipped.chipsForCities([{ city: "quebec", name: "Québec" }]);
+    assert.ok(chips.some((chip) => chip.id === "levis" && chip.city === "quebec"));
+    assert.equal(shipped.resolveCityRequest("longueuil").city, "montreal");
   });
 });
