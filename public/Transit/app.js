@@ -2613,13 +2613,19 @@ async function loadBuildings() {
   if (!isMotionView() && state.camera.zoom < BUILDING_ZOOM) return;
   const pack = viewBbox();
   if (!pack) return;
-  const key = [pack.outer.south, pack.outer.west, pack.outer.north, pack.outer.east, Math.round(pack.extents.visibilityM)]
+  const center = motionCenter();
+  const key = [
+    center.lat,
+    center.lon,
+    Math.round(pack.extents.loadM),
+    Math.round(pack.extents.continueM),
+  ]
     .map((n) => Number(n).toFixed(3))
     .join(",");
   if (key === buildingKey) return;
   if (buildingAbort) buildingAbort.abort();
   buildingAbort = new AbortController();
-  const query = overpassMotionQuery(pack.inner, pack.outer, MOTION_BUILDING_CAP);
+  const query = overpassMotionQuery(center, pack.extents.loadM, pack.extents.continueM);
   if (!query) return;
   const body = overpassPostBody(query);
   for (const url of BUILDING_ENDPOINTS) {

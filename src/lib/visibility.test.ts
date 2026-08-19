@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, it } from "node:test";
-import { MOTION_BUILDING_CAP, overpassMotionQuery } from "./buildings";
+import { MOTION_CORE_CAP, MOTION_FAR_CAP, MOTION_MID_CAP, overpassMotionQuery } from "./buildings";
 import {
   DEFAULT_VISIBILITY_M,
   bboxSpanMeters,
@@ -111,16 +111,39 @@ describe("motion-view working set", () => {
     assert.equal(motionBuildingQueryAllowed(null, cam), true);
     const pack = motionViewBbox(QC, { visibilityM: 8_000 });
     assert.ok(pack);
-    const q = overpassMotionQuery(pack.inner, pack.outer, MOTION_BUILDING_CAP);
-    assert.match(q, /way\["building"\]/);
-    assert.match(q, /out tags geom 800/);
+    const q = overpassMotionQuery(QC, pack.extents.loadM, pack.extents.continueM);
+    assert.match(q, /around:/);
+    assert.match(q, new RegExp(`out tags geom ${MOTION_CORE_CAP}`));
+    assert.match(q, new RegExp(`out tags geom ${MOTION_MID_CAP}`));
+    assert.match(q, new RegExp(`out tags geom ${MOTION_FAR_CAP}`));
+    const outs = q.match(/out tags geom \d+/g) || [];
+    assert.ok(outs.length >= 3);
+    assert.doesNotMatch(q, /out tags geom 800/);
+    assert.match(q, new RegExp(`around:${Math.round(pack.extents.loadM)},`));
+    assert.match(q, new RegExp(`around:${Math.round(pack.extents.continueM)},`));
+    assert.equal(overpassMotionQuery({ lat: Number.NaN, lon: QC.lon }, 1000, 2000), "");
     const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
     assert.match(src, /motionViewBbox/);
-    assert.match(src, /overpassMotionQuery/);
+    assert.match(src, /overpassMotionQuery\(center, pack\.extents\.loadM, pack\.extents\.continueM\)/);
     assert.match(src, /motionBuildingQueryAllowed/);
     assert.doesNotMatch(src, /haversineMeters\(state\.camera, state\.here\) > 1500/);
     assert.doesNotMatch(src, /360 \/ 2 \*\* state\.camera\.zoom/);
     assert.match(src, /function drawBuildings/);
     assert.doesNotMatch(src, /clip.*visibility|visibilityM && haversine/);
+  });
+
+  it("drives the shipped Overpass motion query with split around: budgets", async () => {
+    const js = join(process.cwd(), "public", "Transit", "buildings.js");
+    const shipped = (await import(pathToFileURL(js).href)) as {
+      overpassMotionQuery: typeof overpassMotionQuery;
+    };
+    const pack = motionViewBbox(QC, { visibilityM: 10_000 });
+    assert.ok(pack);
+    const q = shipped.overpassMotionQuery(QC, pack.extents.loadM, pack.extents.continueM);
+    assert.match(q, /around:/);
+    const outs = q.match(/out tags geom \d+/g) || [];
+    assert.ok(outs.length >= 3);
+    assert.notEqual(outs[0], outs[outs.length - 1]);
+    assert.doesNotMatch(q, /\(.*way\["building"\].*\);out tags geom 800/);
   });
 });

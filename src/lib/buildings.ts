@@ -8,6 +8,9 @@ export type BuildingFootprint = {
 export const BUILDING_ZOOM = 12.6;
 export const BUILDING_CAP = 280;
 export const MOTION_BUILDING_CAP = 800;
+export const MOTION_CORE_CAP = 320;
+export const MOTION_MID_CAP = 240;
+export const MOTION_FAR_CAP = 240;
 const MAX_BUILDING_RING_POINTS = 2_000;
 
 export function buildingHeightMeters(tags: unknown): number {
@@ -138,19 +141,51 @@ export function overpassQuery(
   return `[out:json][timeout:12];way["building"](${s});out tags geom ${limit};`;
 }
 
-/** Inner ring: all footprints. Outer ring: taller/landmark LOD so the vis area is covered, not a 700 m dump. */
+function coarseCoord(n: number, step = 0.002): number {
+  return Math.round(n / step) * step;
+}
+
+function finiteRadiusM(n: unknown): number | null {
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 50 || n > 25_000) return null;
+  return n;
+}
+
+function lodUnion(around: string): string {
+  return `(way["building"]["building:levels"](${around});way["building"]["height"](${around});way["building"~"apartments|commercial|office|retail|industrial|hotel|cathedral|university|hospital"](${around});)`;
+}
+
+/**
+ * Rider-centered concentric Overpass: core (all buildings), vis-scale LOD, continue-past LOD.
+ * Each ring has its own `out` budget so Overpass cannot dump-all then take the first N by id.
+ */
 export function overpassMotionQuery(
-  inner: { south: number; west: number; north: number; east: number },
-  outer: { south: number; west: number; north: number; east: number },
-  cap = MOTION_BUILDING_CAP,
+  center: { lat: unknown; lon: unknown },
+  loadM: unknown,
+  continueM: unknown,
+  caps?: { core?: number; mid?: number; far?: number },
 ): string {
-  if (!validBbox(inner) || !validBbox(outer)) return "";
-  const limit = Number.isFinite(cap) ? Math.min(MOTION_BUILDING_CAP, Math.max(1, Math.floor(cap))) : MOTION_BUILDING_CAP;
-  const ring = (b: { south: number; west: number; north: number; east: number }) =>
-    [b.south, b.west, b.north, b.east].map((n) => n.toFixed(5)).join(",");
-  const a = ring(inner);
-  const b = ring(outer);
-  return `[out:json][timeout:20];(way["building"](${a});way["building"]["building:levels"](${b});way["building"]["height"](${b});way["building"~"apartments|commercial|office|retail|industrial|hotel|cathedral|university|hospital"](${b}););out tags geom ${limit};`;
+  const lat = Number(center && center.lat);
+  const lon = Number(center && center.lon);
+  const load = finiteRadiusM(loadM);
+  const cont = finiteRadiusM(continueM);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return "";
+  if (load == null || cont == null || cont < load) return "";
+  const coreCap = Math.min(MOTION_BUILDING_CAP, Math.max(1, Math.floor(caps?.core ?? MOTION_CORE_CAP)));
+  const midCap = Math.min(MOTION_BUILDING_CAP, Math.max(1, Math.floor(caps?.mid ?? MOTION_MID_CAP)));
+  const farCap = Math.min(MOTION_BUILDING_CAP, Math.max(1, Math.floor(caps?.far ?? MOTION_FAR_CAP)));
+  const qlat = coarseCoord(lat).toFixed(4);
+  const qlon = coarseCoord(lon).toFixed(4);
+  const coreM = Math.min(load, 900);
+  const around = (r: number) => `around:${Math.round(r)},${qlat},${qlon}`;
+  const coreA = around(coreM);
+  const loadA = around(load);
+  const farA = around(cont);
+  return (
+    `[out:json][timeout:22];` +
+    `way["building"](${coreA})->.core;.core out tags geom ${coreCap};` +
+    `${lodUnion(loadA)}->.load;(.load; - .core;)->.mid;.mid out tags geom ${midCap};` +
+    `${lodUnion(farA)}->.farset;(.farset; - .load;);out tags geom ${farCap};`
+  );
 }
 
 export function overpassPostBody(query: string): string {

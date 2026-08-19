@@ -3,6 +3,9 @@
 export const BUILDING_ZOOM = 12.6;
 export const BUILDING_CAP = 280;
 export const MOTION_BUILDING_CAP = 800;
+export const MOTION_CORE_CAP = 320;
+export const MOTION_MID_CAP = 240;
+export const MOTION_FAR_CAP = 240;
 export const METRO_DEPTH_M = -24;
 const MAX_BUILDING_RING_POINTS = 2000;
 export const BUILDING_ENDPOINTS = [
@@ -137,13 +140,43 @@ export function overpassQuery(bbox, cap) {
   return `[out:json][timeout:12];way["building"](${s});out tags geom ${limit};`;
 }
 
-export function overpassMotionQuery(inner, outer, cap) {
-  if (!validBbox(inner) || !validBbox(outer)) return "";
-  const limit = Number.isFinite(cap) ? Math.min(MOTION_BUILDING_CAP, Math.max(1, Math.floor(cap))) : MOTION_BUILDING_CAP;
-  const ring = (b) => [b.south, b.west, b.north, b.east].map((n) => n.toFixed(5)).join(",");
-  const a = ring(inner);
-  const b = ring(outer);
-  return `[out:json][timeout:20];(way["building"](${a});way["building"]["building:levels"](${b});way["building"]["height"](${b});way["building"~"apartments|commercial|office|retail|industrial|hotel|cathedral|university|hospital"](${b}););out tags geom ${limit};`;
+function coarseCoord(n, step) {
+  const s = Number.isFinite(step) && step > 0 ? step : 0.002;
+  return Math.round(n / s) * s;
+}
+
+function finiteRadiusM(n) {
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 50 || n > 25000) return null;
+  return n;
+}
+
+function lodUnion(around) {
+  return `(way["building"]["building:levels"](${around});way["building"]["height"](${around});way["building"~"apartments|commercial|office|retail|industrial|hotel|cathedral|university|hospital"](${around});)`;
+}
+
+export function overpassMotionQuery(center, loadM, continueM, caps) {
+  const lat = Number(center && center.lat);
+  const lon = Number(center && center.lon);
+  const load = finiteRadiusM(loadM);
+  const cont = finiteRadiusM(continueM);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return "";
+  if (load == null || cont == null || cont < load) return "";
+  const coreCap = Math.min(MOTION_BUILDING_CAP, Math.max(1, Math.floor((caps && caps.core) || MOTION_CORE_CAP)));
+  const midCap = Math.min(MOTION_BUILDING_CAP, Math.max(1, Math.floor((caps && caps.mid) || MOTION_MID_CAP)));
+  const farCap = Math.min(MOTION_BUILDING_CAP, Math.max(1, Math.floor((caps && caps.far) || MOTION_FAR_CAP)));
+  const qlat = coarseCoord(lat).toFixed(4);
+  const qlon = coarseCoord(lon).toFixed(4);
+  const coreM = Math.min(load, 900);
+  const around = (r) => `around:${Math.round(r)},${qlat},${qlon}`;
+  const coreA = around(coreM);
+  const loadA = around(load);
+  const farA = around(cont);
+  return (
+    `[out:json][timeout:22];` +
+    `way["building"](${coreA})->.core;.core out tags geom ${coreCap};` +
+    `${lodUnion(loadA)}->.load;(.load; - .core;)->.mid;.mid out tags geom ${midCap};` +
+    `${lodUnion(farA)}->.farset;(.farset; - .load;);out tags geom ${farCap};`
+  );
 }
 
 export function overpassPostBody(query) {
