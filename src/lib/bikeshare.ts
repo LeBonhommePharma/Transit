@@ -142,5 +142,6 @@ export function nearbyStations(
 }
 
 export function bikeMinutes(meters: number): number {
+  if (!Number.isFinite(meters) || meters < 0) return 0;
   return Math.max(1, Math.round(meters / 250));
 }

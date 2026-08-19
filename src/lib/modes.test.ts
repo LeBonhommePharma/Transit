@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, it } from "node:test";
 import type { Atlas, Place, Timetable } from "./atlas/types";
+import { bikeMinutes } from "./bikeshare";
 import { overpassAccessQuery, parseOverpassWays } from "./buildings";
 import { daytimeClock } from "./clock";
 import { haversineMeters, roadMinutes, walkMinutes } from "./geo";
@@ -142,7 +143,11 @@ describe("walk bike road and train mixes", () => {
     assert.equal(kit.walkMinutes(750), walkMinutes(750));
     assert.ok(kit.roadMinutes(5800) < kit.bikeMinutes(5800));
     assert.ok(kit.bikeMinutes(5800) < kit.walkMinutes(5800));
-    assert.equal(kit.bikeMinutes(Number.NaN), 0);
+    assert.equal(kit.bikeMinutes(Number.NaN), bikeMinutes(Number.NaN));
+    assert.equal(kit.bikeMinutes(-4), bikeMinutes(-4));
+    assert.equal(bikeMinutes(Number.NaN), 0);
+    assert.equal(walkMinutes(Number.NaN), 0);
+    assert.equal(roadMinutes(Number.NaN), 0);
     const shippedBuildings = (await import(pathToFileURL(join(process.cwd(), "public", "Transit", "buildings.js")).href)) as {
       overpassAccessQuery: typeof overpassAccessQuery;
       parseOverpassWays: typeof parseOverpassWays;
