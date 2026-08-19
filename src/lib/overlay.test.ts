@@ -59,6 +59,74 @@ function contrastRatio(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+type CssDecl = { sel: string; prop: string; value: string; media: string | null };
+
+function extractStyle(html: string): string {
+  const m = html.match(/<style>([\s\S]*?)<\/style>/);
+  assert.ok(m, "missing shipped <style>");
+  return m![1];
+}
+
+function matchingBrace(css: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < css.length; i++) {
+    if (css[i] === "{") depth += 1;
+    else if (css[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function walkDecls(css: string, media: string | null = null): CssDecl[] {
+  const out: CssDecl[] = [];
+  let i = 0;
+  while (i < css.length) {
+    const brace = css.indexOf("{", i);
+    if (brace < 0) break;
+    const sel = css.slice(i, brace).trim();
+    const close = matchingBrace(css, brace);
+    if (close < 0) break;
+    const body = css.slice(brace + 1, close);
+    if (sel.startsWith("@media")) {
+      out.push(...walkDecls(body, sel.replace(/^@media\s*/, "").trim()));
+    } else {
+      for (const part of body.split(";")) {
+        const colon = part.indexOf(":");
+        if (colon < 0) continue;
+        const prop = part.slice(0, colon).trim();
+        const value = part.slice(colon + 1).trim();
+        if (!prop || !value) continue;
+        for (const one of sel.split(",")) {
+          out.push({ sel: one.trim(), prop, value, media });
+        }
+      }
+    }
+    i = close + 1;
+  }
+  return out;
+}
+
+function mediaApplies(media: string | null, widthPx: number): boolean {
+  if (!media) return true;
+  const max = media.match(/max-width:\s*(\d+)px/);
+  const min = media.match(/min-width:\s*(\d+)px/);
+  if (max && widthPx > Number(max[1])) return false;
+  if (min && widthPx < Number(min[1])) return false;
+  return true;
+}
+
+function winningDecl(html: string, selector: string, prop: string, widthPx: number): string | null {
+  let win: string | null = null;
+  for (const d of walkDecls(extractStyle(html))) {
+    if (d.sel !== selector || d.prop !== prop) continue;
+    if (!mediaApplies(d.media, widthPx)) continue;
+    win = d.value;
+  }
+  return win;
+}
+
 describe("overlay polish and escape", () => {
   it("escapes untrusted overlay names and drives the shipped helper", async () => {
     const dirty = `<img src=x onerror=alert(1)> & "stop"`;
@@ -122,8 +190,20 @@ describe("overlay polish and escape", () => {
     assert.match(html, /\.at \{[^}]*flex:\s*0 0 auto/);
     assert.match(html, /\.tools, \.seg \{[\s\S]*?overflow-x:\s*auto/);
     assert.match(html, /overflow-wrap:\s*anywhere/);
-    assert.match(html, /#nav \{[\s\S]*?right:\s*calc\(var\(--safe-right\) \+ var\(--rail\)/);
-    assert.match(html, /#geo-ask \{[\s\S]*?var\(--rail\)/);
+    const navRight = winningDecl(html, "#nav", "right", 375);
+    assert.ok(navRight, "missing winning #nav right at 375px");
+    assert.match(navRight, /var\(--rail\)/);
+    assert.doesNotMatch(navRight, /^var\(--safe-right\)\s*$/);
+    const geoMax = winningDecl(html, "#geo-ask", "max-width", 375);
+    assert.ok(geoMax);
+    assert.match(geoMax, /var\(--rail\)/);
+    const nextCfg = readFileSync(join(process.cwd(), "next.config.ts"), "utf8");
+    const headerCsp = nextCfg.match(/Content-Security-Policy", value: "([^"]+)"/)?.[1] ?? "";
+    const metaCsp = html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/)?.[1] ?? "";
+    assert.match(headerCsp, /connect-src[^"]*https:\/\/api\.open-meteo\.com/);
+    assert.match(headerCsp, /connect-src[^"]*https:\/\/air-quality-api\.open-meteo\.com/);
+    assert.match(metaCsp, /https:\/\/api\.open-meteo\.com/);
+    assert.match(metaCsp, /https:\/\/air-quality-api\.open-meteo\.com/);
     const day = cssBlock(html, ":root, html.day");
     const night = cssBlock(html, "html.night");
     assert.ok(contrastRatio(cssToken(day, "--ink"), cssToken(day, "--paper")) >= 4.5);

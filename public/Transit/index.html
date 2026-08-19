@@ -212,11 +212,6 @@
         }
         .sheet.tall { max-height: 78dvh; }
         .sheet.folded { bottom: var(--safe-bottom); width: auto; left: var(--safe-left); right: auto; max-height: 68px; }
-        #nav {
-          top: calc(var(--safe-top) + 56px);
-          right: calc(var(--safe-right) + var(--rail) + 6px);
-        }
-        #map-hud { bottom: calc(var(--safe-bottom) + 76px); }
       }
       @media (prefers-reduced-motion: reduce) {
         .sheet { transition: none; }
@@ -363,7 +358,7 @@
       #nav {
         position: absolute;
         left: var(--safe-left);
-        right: var(--safe-right);
+        right: calc(var(--safe-right) + var(--rail) + 6px);
         top: calc(var(--safe-top) + 56px);
         background: var(--glass);
         border: 1px solid var(--hair);
@@ -388,6 +383,9 @@
         z-index: var(--z-hud);
       }
       #map-hud[hidden] { display: none; }
+      @media (max-width: 640px) {
+        #map-hud { bottom: calc(var(--safe-bottom) + 76px); }
+      }
       #map-hud .hud-title { font-size: 14px; font-weight: 650; }
       #map-hud .hud-due, #map-hud .hud-trip { color: var(--muted); font-size: 12px; margin-top: 3px; font-family: "Rive Clock", "SF Mono", Menlo, ui-monospace, monospace; font-variant-numeric: tabular-nums; }
       #nav .nav-step { font-size: 16px; font-weight: 650; }
