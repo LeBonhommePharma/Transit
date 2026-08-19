@@ -21,8 +21,14 @@ import {
 } from "node:fs";
 import { createInterface } from "node:readline";
 import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
+import {
+  loadCatalogFromFile,
+  parseIngestArgs,
+  regionsFromCatalog,
+  selectRegions,
+} from "./gtfs-catalog.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CACHE = join(ROOT, ".cache", "gtfs");
@@ -36,105 +42,8 @@ const MAX_CSV_LINE_BYTES = 2 * 1024 * 1024;
 const MAX_STREAM_ROWS = 10_000_000;
 const MAX_SYNC_ROWS = 1_000_000;
 const MAX_SHAPE_POINTS_PER_LINE = 10_000;
-
-const REGIONS = [
-  {
-    city: "quebec",
-    name: "Québec",
-    center: [-71.2082, 46.8131],
-    zoom: 12.4,
-    feeds: [
-      {
-        slug: "rtc",
-        zip: "rtc.zip",
-        url: "https://cdn.rtcquebec.ca/Site_Internet/DonneesOuvertes/googletransit.zip",
-        attribution:
-          "Intègre les Informations publiques du Réseau de transport de la Capitale.",
-        licenseUrl: "https://www.rtcquebec.ca/donnees-ouvertes",
-        agencyHint: "RTC",
-        prefix: "",
-      },
-      {
-        slug: "stlevis",
-        zip: "stlevis.zip",
-        url: "https://www.stlevis.ca/sites/default/files/public/assets/gtfs/transit/gtfs_stlevis.zip",
-        attribution: "Horaires et parcours STLévis, données ouvertes.",
-        licenseUrl: "https://www.stlevis.ca/stlevis/donnees-ouvertes",
-        agencyHint: "STLévis",
-        prefix: "stlevis:",
-      },
-    ],
-  },
-  {
-    city: "montreal",
-    name: "Montréal",
-    center: [-73.5673, 45.5017],
-    zoom: 12.1,
-    feeds: [
-      {
-        slug: "stm",
-        zip: "stm.zip",
-        url: "https://www.stm.info/sites/default/files/gtfs/gtfs_stm.zip",
-        attribution: "Horaires et parcours STM, données ouvertes.",
-        licenseUrl: "https://www.stm.info/fr/a-propos/developpeurs",
-        agencyHint: "STM",
-        prefix: "",
-      },
-      {
-        slug: "stl",
-        zip: "stl.zip",
-        url: "https://stlaval.ca/datas/opendata/GTF_STL.zip",
-        attribution: "Horaires et parcours STL Laval, données ouvertes.",
-        licenseUrl: "https://stlaval.ca/affaires/donnees-ouvertes",
-        agencyHint: "STL",
-        prefix: "stl:",
-      },
-      {
-        slug: "rtl",
-        zip: "rtl.zip",
-        url: "https://www.rtl-longueuil.qc.ca/transit/latestfeed/RTL.zip",
-        attribution: "Horaires et parcours RTL Longueuil, données ouvertes.",
-        licenseUrl: "https://www.rtl-longueuil.qc.ca/donnees-ouvertes",
-        agencyHint: "RTL",
-        prefix: "rtl:",
-      },
-    ],
-  },
-  {
-    city: "sherbrooke",
-    name: "Sherbrooke",
-    center: [-71.8908, 45.4042],
-    zoom: 12.6,
-    feeds: [
-      {
-        slug: "sts",
-        zip: "sts.zip",
-        url: "https://gtfs.sts.qc.ca:8443/gtfs/client/GTFS_clients.zip",
-        attribution: "Horaires et parcours STS Sherbrooke, données ouvertes.",
-        licenseUrl: "https://www.sts.qc.ca/a-propos/la-sts/donnees-ouvertes/",
-        agencyHint: "STS",
-        prefix: "",
-      },
-    ],
-  },
-  {
-    city: "trois-rivieres",
-    name: "Trois-Rivières",
-    center: [-72.5415, 46.3432],
-    zoom: 12.8,
-    feeds: [
-      {
-        slug: "sttr",
-        zip: "sttr.zip",
-        url: "https://www.donneesquebec.ca/recherche/dataset/a2d3c9de-4045-41e3-b2ea-5bb64bd8c50f/resource/71d94f75-5a36-4789-b581-a21d49dcd5f5/download/sttr_ete26.zip",
-        attribution: "Horaires et parcours STTR Trois-Rivières, données ouvertes.",
-        licenseUrl: "https://www.donneesquebec.ca/recherche/dataset/gtsf",
-        agencyHint: "STTR",
-        prefix: "",
-      },
-    ],
-  },
-];
+const REGISTRY_PATH = join(ROOT, "src", "lib", "registry.json");
+const COVERAGE_PATH = join(ROOT, "scripts", "gtfs-coverage.mjs");
 
 function prefixed(prefix, id) {
   if (!id) return id;
@@ -283,13 +192,11 @@ function simplifyLine(coords, minMeters = 14) {
   return out;
 }
 
-const FORCE = process.argv.includes("--force") || process.env.RIVE_FORCE_INGEST === "1";
-
-function ensureZip(feed) {
+function ensureZip(feed, force) {
   mkdirSync(CACHE, { recursive: true });
   const zipPath = join(CACHE, feed.zip);
   const dir = join(CACHE, feed.slug);
-  if (FORCE) {
+  if (force) {
     console.log(`Refreshing ${feed.slug} from official zip…`);
     rmSync(zipPath, { force: true });
     rmSync(dir, { recursive: true, force: true });
@@ -388,8 +295,8 @@ function pickHeadsign(counts) {
   return best;
 }
 
-async function ingestFeed(region, feed) {
-  const dir = ensureZip(feed);
+async function ingestFeed(region, feed, force) {
+  const dir = ensureZip(feed, force);
   const p = (id) => prefixed(feed.prefix, id);
   console.log(`\nIngest ${region.name} / ${feed.agencyHint} (${feed.slug})`);
 
@@ -790,40 +697,141 @@ function writeJson(path, data) {
   console.log(`  ${path.replace(ROOT + "/", "")}  ${mb} MB`);
 }
 
-const metas = [];
-for (const region of REGIONS) {
-  const pieces = [];
-  for (const feed of region.feeds) {
-    pieces.push(await ingestFeed(region, feed));
-  }
-  const merged = mergePieces(region, pieces);
-  const dest = join(OUT, region.city);
-  mkdirSync(dest, { recursive: true });
-  writeJson(join(dest, "atlas.json"), {
-    meta: merged.meta,
-    routes: merged.routes,
-    stops: merged.stops,
-    calendar: merged.calendar,
-    exceptions: merged.exceptions,
-    transfers: merged.transfers,
-    services: merged.services,
-  });
-  writeJson(join(dest, "timetable.json"), merged.timetable);
-  writeJson(join(dest, "meta.json"), merged.meta);
-  console.log(
-    `  wrote ${region.city}: ${merged.routes.length} routes, ${merged.stops.length} stops, ${merged.services.length} services`,
-  );
-  metas.push(merged.meta);
+function montrealYyyymmdd(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Montreal",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const y = parts.find((p) => p.type === "year")?.value;
+  const m = parts.find((p) => p.type === "month")?.value;
+  const d = parts.find((p) => p.type === "day")?.value;
+  return `${y}${m}${d}`;
 }
-writeFileSync(
-  join(OUT, "index.json"),
-  JSON.stringify(
-    {
-      builtAt: new Date().toISOString(),
-      cities: metas,
-    },
-    null,
-    2,
-  ),
-);
-console.log("\nAtlas ready.");
+
+function assertCoverageIncludesToday(merged, now = new Date()) {
+  const today = montrealYyyymmdd(now);
+  let maxDate = "";
+  for (const row of merged.calendar || []) {
+    if (typeof row?.end === "string" && row.end > maxDate) maxDate = row.end;
+  }
+  for (const row of merged.exceptions || []) {
+    if (typeof row?.date === "string" && row.date > maxDate) maxDate = row.date;
+  }
+  if (!maxDate || maxDate < today) {
+    const city = merged.meta?.city || "unknown";
+    throw new Error(
+      `GTFS coverage for ${city} ends on ${maxDate || "none"}, which is before today ${today} (America/Montreal)`,
+    );
+  }
+}
+
+async function runCoverageAssert(merged) {
+  if (existsSync(COVERAGE_PATH)) {
+    const coverage = await import(pathToFileURL(COVERAGE_PATH).href);
+    if (typeof coverage.assertCoverageIncludesToday === "function") {
+      coverage.assertCoverageIncludesToday(merged);
+      return;
+    }
+  }
+  assertCoverageIncludesToday(merged);
+}
+
+function readOnDiskMeta(cityDir) {
+  const metaPath = join(cityDir, "meta.json");
+  if (existsSync(metaPath)) {
+    return JSON.parse(readFileSync(metaPath, "utf8"));
+  }
+  const atlasPath = join(cityDir, "atlas.json");
+  if (existsSync(atlasPath)) {
+    const atlas = JSON.parse(readFileSync(atlasPath, "utf8"));
+    if (atlas && typeof atlas === "object" && atlas.meta) return atlas.meta;
+  }
+  return null;
+}
+
+function collectOnDiskMetas(outDir, regions) {
+  const byCity = new Map();
+  if (!existsSync(outDir)) return [];
+  for (const entry of readdirSync(outDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    try {
+      const meta = readOnDiskMeta(join(outDir, entry.name));
+      const city = typeof meta?.city === "string" ? meta.city : entry.name;
+      if (meta && typeof meta === "object") byCity.set(city, meta);
+    } catch {
+      // skip unreadable city dirs
+    }
+  }
+  const ordered = [];
+  const seen = new Set();
+  for (const region of regions) {
+    const meta = byCity.get(region.city);
+    if (meta) {
+      ordered.push(meta);
+      seen.add(region.city);
+    }
+  }
+  for (const [city, meta] of byCity) {
+    if (!seen.has(city)) ordered.push(meta);
+  }
+  return ordered;
+}
+
+function writeIndexFromDisk(outDir, regions) {
+  writeFileSync(
+    join(outDir, "index.json"),
+    JSON.stringify(
+      {
+        builtAt: new Date().toISOString(),
+        cities: collectOnDiskMetas(outDir, regions),
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+async function main() {
+  const args = parseIngestArgs(process.argv, process.env);
+  const catalog = loadCatalogFromFile(REGISTRY_PATH);
+  const regions = regionsFromCatalog(catalog);
+  const wanted = selectRegions(regions, args.city);
+  for (const region of wanted) {
+    const pieces = [];
+    for (const feed of region.feeds) {
+      pieces.push(await ingestFeed(region, feed, args.force));
+    }
+    const merged = mergePieces(region, pieces);
+    await runCoverageAssert(merged);
+    const dest = join(OUT, region.city);
+    mkdirSync(dest, { recursive: true });
+    writeJson(join(dest, "atlas.json"), {
+      meta: merged.meta,
+      routes: merged.routes,
+      stops: merged.stops,
+      calendar: merged.calendar,
+      exceptions: merged.exceptions,
+      transfers: merged.transfers,
+      services: merged.services,
+    });
+    writeJson(join(dest, "timetable.json"), merged.timetable);
+    writeJson(join(dest, "meta.json"), merged.meta);
+    console.log(
+      `  wrote ${region.city}: ${merged.routes.length} routes, ${merged.stops.length} stops, ${merged.services.length} services`,
+    );
+  }
+  writeIndexFromDisk(OUT, regions);
+  console.log("\nAtlas ready.");
+}
+
+function isEntrypoint() {
+  const arg = process.argv[1];
+  if (!arg) return false;
+  return import.meta.url === pathToFileURL(resolve(arg)).href;
+}
+
+if (isEntrypoint()) {
+  await main();
+}

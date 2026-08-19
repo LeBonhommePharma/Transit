@@ -11,12 +11,20 @@
         {
           "agency": "RTC",
           "url": "https://cdn.rtcquebec.ca/Site_Internet/DonneesOuvertes/googletransit.zip",
-          "attribution": "Informations publiques du Réseau de transport de la Capitale."
+          "attribution": "Informations publiques du Réseau de transport de la Capitale.",
+          "slug": "rtc",
+          "zip": "rtc.zip",
+          "prefix": "",
+          "licenseUrl": "https://www.rtcquebec.ca/donnees-ouvertes"
         },
         {
           "agency": "STLévis",
           "url": "https://www.stlevis.ca/sites/default/files/public/assets/gtfs/transit/gtfs_stlevis.zip",
-          "attribution": "Horaires et parcours STLévis, données ouvertes."
+          "attribution": "Horaires et parcours STLévis, données ouvertes.",
+          "slug": "stlevis",
+          "zip": "stlevis.zip",
+          "prefix": "stlevis:",
+          "licenseUrl": "https://www.stlevis.ca/stlevis/donnees-ouvertes"
         }
       ],
       "bikes": {
@@ -34,17 +42,29 @@
         {
           "agency": "STM",
           "url": "https://www.stm.info/sites/default/files/gtfs/gtfs_stm.zip",
-          "attribution": "Horaires et parcours STM, données ouvertes."
+          "attribution": "Horaires et parcours STM, données ouvertes.",
+          "slug": "stm",
+          "zip": "stm.zip",
+          "prefix": "",
+          "licenseUrl": "https://www.stm.info/fr/a-propos/developpeurs"
         },
         {
           "agency": "STL",
           "url": "https://stlaval.ca/datas/opendata/GTF_STL.zip",
-          "attribution": "Horaires et parcours STL Laval, données ouvertes."
+          "attribution": "Horaires et parcours STL Laval, données ouvertes.",
+          "slug": "stl",
+          "zip": "stl.zip",
+          "prefix": "stl:",
+          "licenseUrl": "https://stlaval.ca/affaires/donnees-ouvertes"
         },
         {
           "agency": "RTL",
           "url": "https://www.rtl-longueuil.qc.ca/transit/latestfeed/RTL.zip",
-          "attribution": "Horaires et parcours RTL Longueuil, données ouvertes."
+          "attribution": "Horaires et parcours RTL Longueuil, données ouvertes.",
+          "slug": "rtl",
+          "zip": "rtl.zip",
+          "prefix": "rtl:",
+          "licenseUrl": "https://www.rtl-longueuil.qc.ca/donnees-ouvertes"
         }
       ],
       "bikes": {
@@ -62,7 +82,11 @@
         {
           "agency": "STS",
           "url": "https://gtfs.sts.qc.ca:8443/gtfs/client/GTFS_clients.zip",
-          "attribution": "Horaires et parcours STS Sherbrooke, données ouvertes."
+          "attribution": "Horaires et parcours STS Sherbrooke, données ouvertes.",
+          "slug": "sts",
+          "zip": "sts.zip",
+          "prefix": "",
+          "licenseUrl": "https://www.sts.qc.ca/a-propos/la-sts/donnees-ouvertes/"
         }
       ]
     },
@@ -76,7 +100,11 @@
         {
           "agency": "STTR",
           "url": "https://www.donneesquebec.ca/recherche/dataset/a2d3c9de-4045-41e3-b2ea-5bb64bd8c50f/resource/71d94f75-5a36-4789-b581-a21d49dcd5f5/download/sttr_ete26.zip",
-          "attribution": "Horaires et parcours STTR Trois-Rivières, données ouvertes."
+          "attribution": "Horaires et parcours STTR Trois-Rivières, données ouvertes.",
+          "slug": "sttr",
+          "zip": "sttr.zip",
+          "prefix": "",
+          "licenseUrl": "https://www.donneesquebec.ca/recherche/dataset/gtsf"
         }
       ]
     }
