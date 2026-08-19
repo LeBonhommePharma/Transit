@@ -30,20 +30,21 @@
         font-display: swap;
       }
       :root, html.day {
-        --ink: #1a2430;
-        --paper: #e8eef2;
-        --muted: #3f4d5c;
+        --ink: #1c1917;
+        --paper: #f7f6f3;
+        --muted: #57534e;
         --sodium: #0e7490;
-        --gold: #b45309;
-        --terra: #6d5cae;
-        --glass: rgb(248 252 255 / 0.92);
-        --stage: #d5dde4;
-        --chip: #0e7490;
-        --chip-ink: #f0fdff;
-        --well: rgb(14 116 144 / 0.12);
-        --hair: rgb(26 36 48 / 0.14);
-        --shadow: 0 10px 28px rgb(26 36 48 / 0.12);
+        --gold: #9a3412;
+        --terra: #57534e;
+        --glass: rgb(251 250 247 / 0.94);
+        --stage: #eceae4;
+        --chip: #1c1917;
+        --chip-ink: #f7f6f3;
+        --well: rgb(28 25 23 / 0.06);
+        --hair: rgb(28 25 23 / 0.10);
+        --shadow: none;
         --ring: #0e7490;
+        --radius: 10px;
         --ease: cubic-bezier(0.16, 1, 0.3, 1);
         --z-ui: 2;
         --z-rail: 4;
@@ -53,44 +54,46 @@
         color-scheme: light;
       }
       html.night {
-        --ink: #e6ebf6;
-        --paper: #0c1118;
-        --muted: #a8b2c6;
+        --ink: #e7e5e4;
+        --paper: #141210;
+        --muted: #a8a29e;
         --sodium: #22d3ee;
-        --gold: #fbbf24;
-        --terra: #c4b5fd;
-        --glass: rgb(14 18 26 / 0.92);
-        --stage: #0d1218;
-        --chip: #22d3ee;
-        --chip-ink: #082028;
-        --well: rgb(34 211 238 / 0.12);
-        --hair: rgb(230 235 246 / 0.16);
-        --shadow: 0 12px 32px rgb(0 0 0 / 0.38);
+        --gold: #fdba74;
+        --terra: #a8a29e;
+        --glass: rgb(28 25 23 / 0.94);
+        --stage: #1c1917;
+        --chip: #e7e5e4;
+        --chip-ink: #141210;
+        --well: rgb(231 229 228 / 0.08);
+        --hair: rgb(231 229 228 / 0.14);
+        --shadow: none;
         --ring: #22d3ee;
+        --radius: 10px;
         color-scheme: dark;
       }
       @media (prefers-color-scheme: dark) {
         :root:not(.day) {
-          --ink: #e6ebf6;
-          --paper: #0c1118;
-          --muted: #a8b2c6;
+          --ink: #e7e5e4;
+          --paper: #141210;
+          --muted: #a8a29e;
           --sodium: #22d3ee;
-          --gold: #fbbf24;
-          --terra: #c4b5fd;
-          --glass: rgb(14 18 26 / 0.92);
-          --stage: #0d1218;
-          --chip: #22d3ee;
-          --chip-ink: #082028;
-          --well: rgb(34 211 238 / 0.12);
-          --hair: rgb(230 235 246 / 0.16);
-          --shadow: 0 12px 32px rgb(0 0 0 / 0.38);
+          --gold: #fdba74;
+          --terra: #a8a29e;
+          --glass: rgb(28 25 23 / 0.94);
+          --stage: #1c1917;
+          --chip: #e7e5e4;
+          --chip-ink: #141210;
+          --well: rgb(231 229 228 / 0.08);
+          --hair: rgb(231 229 228 / 0.14);
+          --shadow: none;
           --ring: #22d3ee;
+          --radius: 10px;
           color-scheme: dark;
         }
       }
       @media (prefers-reduced-transparency: reduce) {
-        :root, html.day { --glass: #eef3f6; }
-        html.night, :root:not(.day) { --glass: #141922; }
+        :root, html.day { --glass: #f7f6f3; }
+        html.night, :root:not(.day) { --glass: #1c1917; }
       }
       * { box-sizing: border-box; }
       html, body { height: 100%; margin: 0; background: var(--paper); color: var(--ink); font-family: "Rive Text", "Avenir Next", "Segoe UI", sans-serif; }
@@ -123,7 +126,7 @@
         z-index: 20;
         transform: translateY(-160%);
         padding: 8px 12px;
-        border-radius: 999px;
+        border-radius: 8px;
         background: var(--chip);
         color: var(--chip-ink);
         font: inherit;
@@ -154,8 +157,8 @@
         width: auto;
         max-width: none;
         margin: 0;
-        padding: 4px;
-        border-radius: 22px;
+        padding: 3px;
+        border-radius: var(--radius);
         background: var(--glass);
         border: 1px solid var(--hair);
         box-shadow: var(--shadow);
@@ -171,7 +174,7 @@
         color: var(--muted);
         padding: 10px 12px;
         min-height: 44px;
-        border-radius: 999px;
+        border-radius: 8px;
         font: inherit;
         cursor: pointer;
         flex: 0 0 auto;
@@ -188,9 +191,9 @@
         width: min(400px, calc(100% - var(--safe-left) - var(--safe-right)));
         background: var(--glass);
         border: 1px solid var(--hair);
-        border-radius: 28px;
-        padding: 16px;
-        backdrop-filter: blur(18px);
+        border-radius: var(--radius);
+        padding: 14px;
+        backdrop-filter: blur(12px);
         box-shadow: var(--shadow);
         max-height: calc(100dvh - 100px);
         overflow: auto;
@@ -220,7 +223,7 @@
       .sheet h1, .sheet h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; text-wrap: balance; }
       .sheet h2 { margin-top: 14px; }
       .sheet p.lead { margin: 0 0 10px; color: var(--muted); font-size: 13px; line-height: 1.45; max-width: 65ch; }
-      .sheet input { width: 100%; border: 0; border-radius: 16px; background: var(--well); color: var(--ink); padding: 12px 14px; font: inherit; outline: none; }
+      .sheet input { width: 100%; border: 0; border-radius: 8px; background: var(--well); color: var(--ink); padding: 12px 14px; font: inherit; outline: none; }
       .sheet input::placeholder { color: var(--muted); opacity: 0.9; }
       .toolbar {
         display: flex;
@@ -240,7 +243,7 @@
         scrollbar-width: none;
         gap: 2px;
         padding: 2px;
-        border-radius: 999px;
+        border-radius: 8px;
         background: var(--well);
       }
       .tools::-webkit-scrollbar, .seg::-webkit-scrollbar { display: none; }
@@ -248,7 +251,7 @@
         border: 0;
         background: transparent;
         color: var(--ink);
-        border-radius: 999px;
+        border-radius: 8px;
         font: inherit;
         font-size: 11px;
         font-weight: 600;
@@ -298,7 +301,7 @@
         font-size: 13px;
         font-family: "Rive Clock", "SF Mono", Menlo, ui-monospace, monospace;
         font-variant-numeric: tabular-nums;
-        border-radius: 999px;
+        border-radius: 8px;
         background: var(--well);
       }
       @media (max-width: 380px) {
@@ -313,13 +316,13 @@
       .hits button:hover { background: var(--well); }
       .hits .meta { color: var(--muted); font-size: 12px; }
       .lines { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
-      .lines button { border: 0; border-radius: 999px; padding: 8px 12px; min-height: 36px; font: inherit; font-weight: 700; font-size: 13px; cursor: pointer; }
+      .lines button { border: 0; border-radius: 8px; padding: 8px 12px; min-height: 36px; font: inherit; font-weight: 700; font-size: 13px; cursor: pointer; }
       .lines button.on { outline: 2px solid var(--ink); outline-offset: 2px; }
       .due .wait { font-size: 20px; font-weight: 560; letter-spacing: -0.03em; }
       #trips { margin: 10px 0 4px; }
       #trips[hidden] { display: none; }
       .trip {
-        border-radius: 16px;
+        border-radius: 8px;
         background: var(--well);
         padding: 8px 10px 10px;
         margin: 8px 0 0;
@@ -343,7 +346,7 @@
       .trip .go {
         margin-top: 6px;
         border: 0;
-        border-radius: 999px;
+        border-radius: 8px;
         background: var(--chip);
         color: var(--chip-ink);
         font: inherit;
@@ -362,9 +365,9 @@
         top: calc(var(--safe-top) + 56px);
         background: var(--glass);
         border: 1px solid var(--hair);
-        border-radius: 18px;
+        border-radius: var(--radius);
         padding: 10px 12px;
-        backdrop-filter: blur(18px);
+        backdrop-filter: blur(12px);
         box-shadow: var(--shadow);
         z-index: var(--z-hud);
       }
@@ -376,9 +379,9 @@
         bottom: calc(var(--safe-bottom) + 60px);
         background: var(--glass);
         border: 1px solid var(--hair);
-        border-radius: 16px;
+        border-radius: var(--radius);
         padding: 10px 12px;
-        backdrop-filter: blur(18px);
+        backdrop-filter: blur(12px);
         box-shadow: var(--shadow);
         z-index: var(--z-hud);
       }
@@ -393,7 +396,7 @@
       #nav-stop {
         margin-top: 8px;
         border: 0;
-        border-radius: 999px;
+        border-radius: 8px;
         background: var(--well);
         color: var(--ink);
         font: inherit;
@@ -406,7 +409,7 @@
       .board { margin-top: 14px; }
       .board h2 { margin: 0 0 4px; font-size: 20px; font-weight: 560; }
       .row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; }
-      .badge { min-width: 44px; text-align: center; border-radius: 999px; padding: 3px 8px; font-size: 12px; font-weight: 700; }
+      .badge { min-width: 44px; text-align: center; border-radius: 6px; padding: 3px 8px; font-size: 12px; font-weight: 700; }
       .badge.access { background: var(--well); color: var(--ink); }
       .times { font-family: "Rive Clock", "SF Mono", Menlo, ui-monospace, monospace; font-size: 12px; color: var(--muted); letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
       footer { position: absolute; right: var(--safe-right); bottom: var(--safe-bottom); max-width: 280px; text-align: right; font-size: 10px; color: var(--muted); line-height: 1.45; z-index: var(--z-ui); }
@@ -417,7 +420,7 @@
         top: calc(var(--safe-top) + 56px);
         z-index: var(--z-ask);
         border: 0;
-        border-radius: 999px;
+        border-radius: 8px;
         background: var(--chip);
         color: var(--chip-ink);
         font: inherit;
@@ -452,7 +455,7 @@
         position: static;
         max-width: 100%;
         padding: 5px 9px;
-        border-radius: 12px;
+        border-radius: 8px;
         background: var(--glass);
         border: 1px solid var(--hair);
         font-size: 11px;
@@ -465,7 +468,7 @@
         overflow-wrap: anywhere;
         line-height: 1.35;
       }
-      #heading { border-radius: 999px; letter-spacing: 0.04em; }
+      #heading { border-radius: 8px; letter-spacing: 0.04em; }
       #heading[hidden], #wx[hidden] { display: none; }
     </style>
   </head>
