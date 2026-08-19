@@ -1,4 +1,5 @@
 import Foundation
+import simd
 import RiveKit
 
 /// Drives shipped RiveKit on this Mac. CLT has no XCTest / Testing.framework.
@@ -108,6 +109,24 @@ enum RiveKitCheck {
     let shellURL = repoRoot.appendingPathComponent("ios/RiveApp/RiveApp.swift")
     let shell = try String(contentsOf: shellURL)
     check("iphone shell receives riveLive", shell.contains("riveLive"))
+    check("iphone shell receives riveShade", shell.contains("riveShade"))
+    check("iphone shell keeps AtlasWebView", shell.contains("struct AtlasWebView"))
+
+    let toward = SIMD3<Float>(1, 0, 0)
+    let away = SIMD3<Float>(-1, 0, 0)
+    let light = SIMD3<Float>(1, 0, 0)
+    let cpu = BuildingShade.shadeCPU(normals: [toward, away], light: light)
+    check("cpu wall toward light is brighter", cpu.count == 2 && cpu[0] > cpu[1] + 0.3)
+    check("cpu junk normal is dark", BuildingShade.shadeCPU(normals: [SIMD3<Float>(0, 0, 0)], light: light) == [0])
+    if BuildingShade.metalAvailable, let metal = BuildingShade.shadeMetal(normals: [toward, away], light: light) {
+      check("metal wall toward light is brighter", metal.count == 2 && metal[0] > metal[1] + 0.3)
+      check("metal matches cpu Lambert", abs(metal[0] - cpu[0]) < 0.002 && abs(metal[1] - cpu[1]) < 0.002)
+      let best = BuildingShade.shadeBest(normals: [toward, away], light: light)
+      check("shadeBest prefers metal", best.backend == "metal")
+    } else {
+      let best = BuildingShade.shadeBest(normals: [toward, away], light: light)
+      check("shadeBest cpu fallback", best.backend == "cpu" && best.shades[0] > best.shades[1])
+    }
 
     let faceURL = URL(fileURLWithPath: #filePath)
       .deletingLastPathComponent()

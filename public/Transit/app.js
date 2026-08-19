@@ -1,5 +1,7 @@
 /* Rive standalone atlas. Copyright 2026 Rive contributors. Apache-2.0 */
-import { probeGpuLabel } from "./webgpu.js";
+import { acquireGpuDevice, computeWallShades, metalShadeAvailable, probeGpuLabel } from "./webgpu.js";
+import { observerLight } from "./celestial.js";
+import { SHADE_AMBIENT, lightVectorForMap, mixHex, shadeFactor, shadeMany, wallOutwardNormal } from "./shade.js";
 import {
   acceptRiderFix,
   forgetInAppLocationGrant,
@@ -24,13 +26,19 @@ import {
 import {
   BUILDING_ENDPOINTS,
   BUILDING_ZOOM,
+  MOTION_BUILDING_CAP,
   METRO_DEPTH_M,
   applyPitch,
   invertPitch,
+  overpassMotionQuery,
   overpassPostBody,
-  overpassQuery,
   parseOverpassBuildings,
 } from "./buildings.js";
+import {
+  motionBuildingQueryAllowed,
+  motionViewBbox,
+  weatherFromOpenMeteo,
+} from "./visibility.js";
 import { BIKE_FEEDS, feedUrl, mergeStations, nearbyStations } from "./bikes.js";
 
 const TZ = "America/Montreal";
@@ -59,6 +67,7 @@ const state = {
   pois: [],
   searchPois: [],
   buildings: [],
+  weather: null,
   bikes: [],
   vehicles: [],
   tripUpdates: [],
@@ -1433,6 +1442,7 @@ async function loadCity(city) {
   await loadPois();
   await loadRealtime();
   await loadBikes();
+  scheduleWeather();
   renderNearby();
   renderLines();
   renderBikes();
@@ -1762,7 +1772,10 @@ function applyHere(lon, lat, source, at, follow) {
     paintHeading();
     paintMapHud();
     requestDraw();
-    if (snap) scheduleBuildings();
+    if (snap) {
+      scheduleBuildings();
+      scheduleWeather();
+    }
   };
   if (city !== state.city) {
      document.querySelectorAll("[data-city]").forEach((button) => button.classList.toggle("on", button.dataset.city === city));
@@ -2536,20 +2549,21 @@ let buildingTimer = 0;
 let buildingKey = "";
 let buildingAbort = null;
 
+function isMotionView() {
+  return (state.here && state.here.source === "gps") || (state.camera.pitch || 0) > 0.2;
+}
+
+function motionCenter() {
+  if (state.here && Number.isFinite(state.here.lat) && Number.isFinite(state.here.lon)) return state.here;
+  return { lon: state.camera.lon, lat: state.camera.lat };
+}
+
 function viewBbox() {
-  const deg = 360 / 2 ** state.camera.zoom;
-  return {
-    south: Math.max(-90, state.camera.lat - deg * 0.32),
-    west: Math.max(-180, state.camera.lon - deg * 0.5),
-    north: Math.min(90, state.camera.lat + deg * 0.32),
-    east: Math.min(180, state.camera.lon + deg * 0.5),
-  };
+  return motionViewBbox(motionCenter(), state.weather);
 }
 
 function buildingQueryAllowed() {
-  if (!state.here || state.here.source !== "gps") return true;
-  // Do not send a precise GPS-derived viewport to a third-party Overpass mirror.
-  return haversineMeters(state.camera, state.here) > 1500;
+  return motionBuildingQueryAllowed(state.here, state.camera);
 }
 
 function scheduleBuildings() {
@@ -2557,10 +2571,38 @@ function scheduleBuildings() {
   buildingTimer = setTimeout(loadBuildings, 280);
 }
 
+let weatherTimer = 0;
+let weatherKey = "";
+function scheduleWeather() {
+  clearTimeout(weatherTimer);
+  weatherTimer = setTimeout(loadWeather, 400);
+}
+
+async function loadWeather() {
+  const c = motionCenter();
+  if (!Number.isFinite(c.lat) || !Number.isFinite(c.lon)) return;
+  const qlat = Math.round(c.lat * 50) / 50;
+  const qlon = Math.round(c.lon * 50) / 50;
+  const key = `${qlat},${qlon}`;
+  if (key === weatherKey && state.weather) return;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${qlat}&longitude=${qlon}&current=visibility,weather_code&hourly=visibility,weather_code&forecast_hours=6&timezone=America%2FMontreal`;
+  try {
+    const res = await fetch(url, { redirect: "error" });
+    if (!res.ok) return;
+    const parsed = weatherFromOpenMeteo(await readJsonResponseLimited(res, 256 * 1024));
+    if (!parsed) return;
+    state.weather = parsed;
+    weatherKey = key;
+    scheduleBuildings();
+    requestDraw();
+  } catch {
+    /* keep last weather or default vis */
+  }
+}
+
 async function loadBuildings() {
-  if (!buildingQueryAllowed()) {
-    if (buildingAbort) buildingAbort.abort();
-    buildingAbort = null;
+  if (!buildingQueryAllowed()) return;
+  if (!isMotionView() && state.camera.zoom < BUILDING_ZOOM - 0.85) {
     if (state.buildings.length) {
       state.buildings = [];
       buildingKey = "";
@@ -2568,22 +2610,16 @@ async function loadBuildings() {
     }
     return;
   }
-  if (state.camera.zoom < BUILDING_ZOOM - 0.85) {
-    if (state.buildings.length) {
-      state.buildings = [];
-      buildingKey = "";
-      requestDraw();
-    }
-    return;
-  }
-  if (state.camera.zoom < BUILDING_ZOOM) return;
-  const box = viewBbox();
-  const prec = state.camera.zoom >= 15 ? 3 : 2;
-  const key = [box.south, box.west, box.north, box.east].map((n) => n.toFixed(prec)).join(",");
+  if (!isMotionView() && state.camera.zoom < BUILDING_ZOOM) return;
+  const pack = viewBbox();
+  if (!pack) return;
+  const key = [pack.outer.south, pack.outer.west, pack.outer.north, pack.outer.east, Math.round(pack.extents.visibilityM)]
+    .map((n) => Number(n).toFixed(3))
+    .join(",");
   if (key === buildingKey) return;
   if (buildingAbort) buildingAbort.abort();
   buildingAbort = new AbortController();
-  const query = overpassQuery(box);
+  const query = overpassMotionQuery(pack.inner, pack.outer, MOTION_BUILDING_CAP);
   if (!query) return;
   const body = overpassPostBody(query);
   for (const url of BUILDING_ENDPOINTS) {
@@ -2596,7 +2632,7 @@ async function loadBuildings() {
         redirect: "error",
       });
       if (!res.ok) continue;
-      const parsed = parseOverpassBuildings(await readJsonResponseLimited(res, 4 * 1024 * 1024));
+      const parsed = parseOverpassBuildings(await readJsonResponseLimited(res, 6 * 1024 * 1024), MOTION_BUILDING_CAP);
       if (!parsed.length) continue;
       parsed.sort((a, b) => b.ring[0][1] - a.ring[0][1]);
       state.buildings = parsed;
@@ -2609,31 +2645,98 @@ async function loadBuildings() {
   }
 }
 
+const gpuLightState = { inflight: false, key: "", shades: null };
+
+function observerForLight() {
+  const here = state.here;
+  if (here && Number.isFinite(here.lat) && Number.isFinite(here.lon)) return here;
+  return { lon: state.camera.lon, lat: state.camera.lat };
+}
+
+function mapLightNow() {
+  const here = observerForLight();
+  const body = observerLight(here.lat, here.lon, new Date());
+  if (!body) return { body: null, light: null };
+  const heading = state.heading && Number.isFinite(state.heading.degrees) ? state.heading.degrees : null;
+  return { body, light: lightVectorForMap(body.azimuth, body.altitude, heading) };
+}
+
 function drawBuildings(w, h) {
-  if (state.camera.zoom < BUILDING_ZOOM - 0.85 || !state.buildings.length) return;
+  if (!state.buildings.length) return;
+  if (!isMotionView() && state.camera.zoom < BUILDING_ZOOM - 0.85) return;
   const night = document.documentElement.classList.contains("night");
   const wall = night ? "#2a3642" : "#b4a99a";
   const wallDark = night ? "#1c2530" : "#8f867a";
   const roof = night ? "#3a4754" : "#efe6d6";
   const edge = night ? "#121820" : "#6f675c";
-  ctx.lineWidth = 0.6;
-  ctx.strokeStyle = edge;
+  const { body, light } = mapLightNow();
+  const jobs = [];
+  const normals = [];
   for (const b of state.buildings) {
     const ground = b.ring.map(([lon, lat]) => worldToScreen(lon, lat, state.camera, w, h, 0));
     const top = b.ring.map(([lon, lat]) => worldToScreen(lon, lat, state.camera, w, h, b.heightM));
+    let sx = 0;
+    let sy = 0;
+    let n = 0;
+    for (const p of ground) {
+      if (Number.isFinite(p[0]) && Number.isFinite(p[1])) {
+        sx += p[0];
+        sy += p[1];
+        n += 1;
+      }
+    }
+    const cx = n ? sx / n : 0;
+    const cy = n ? sy / n : 0;
+    const wallNormals = [];
     for (let i = 0; i < ground.length - 1; i++) {
-      ctx.fillStyle = ground[i + 1][0] >= ground[i][0] ? wallDark : wall;
+      wallNormals.push(wallOutwardNormal(ground[i], ground[i + 1], cx, cy));
+    }
+    jobs.push({ ground, top, wallNormals });
+    for (const normal of wallNormals) normals.push(normal || { x: 0, y: 0, z: 0 });
+  }
+  const shades = light ? shadeMany(light, normals) : normals.map(() => SHADE_AMBIENT);
+  const cam = state.camera;
+  const first = state.buildings[0] && state.buildings[0].ring && state.buildings[0].ring[0];
+  const last = state.buildings[state.buildings.length - 1];
+  const geom = `${state.buildings.length}:${first ? first[0] : 0}:${first ? first[1] : 0}:${last ? last.heightM : 0}:${normals.length}`;
+  const lightPart = light && body
+    ? `${body.source}:${light.x.toFixed(3)}:${light.y.toFixed(3)}:${light.z.toFixed(3)}`
+    : "none";
+  const key = `${lightPart}:${cam.lon}:${cam.lat}:${cam.zoom}:${cam.pitch || 0}:${w}x${h}:${geom}`;
+  const gpu = globalThis.navigator && globalThis.navigator.gpu;
+  const canGpu = metalShadeAvailable() || (gpu && typeof gpu.requestAdapter === "function");
+  if (canGpu && light && normals.length && !gpuLightState.inflight && gpuLightState.key !== key) {
+    gpuLightState.inflight = true;
+    const want = key;
+    computeWallShades(gpu, normals, light)
+      .then((row) => {
+        gpuLightState.inflight = false;
+        if (!row || !row.shades || row.shades.length !== normals.length) return;
+        gpuLightState.shades = row.shades;
+        gpuLightState.key = want;
+      })
+      .catch(() => {
+        gpuLightState.inflight = false;
+      });
+  }
+  ctx.lineWidth = 0.6;
+  ctx.strokeStyle = edge;
+  let si = 0;
+  const roofShade = light ? shadeFactor(light, { x: 0, y: 0, z: 1 }) : SHADE_AMBIENT;
+  for (const job of jobs) {
+    for (let i = 0; i < job.ground.length - 1; i++) {
+      ctx.fillStyle = mixHex(wallDark, wall, shades[si++] ?? 0.4);
       ctx.beginPath();
-      ctx.moveTo(ground[i][0], ground[i][1]);
-      ctx.lineTo(ground[i + 1][0], ground[i + 1][1]);
-      ctx.lineTo(top[i + 1][0], top[i + 1][1]);
-      ctx.lineTo(top[i][0], top[i][1]);
+      ctx.moveTo(job.ground[i][0], job.ground[i][1]);
+      ctx.lineTo(job.ground[i + 1][0], job.ground[i + 1][1]);
+      ctx.lineTo(job.top[i + 1][0], job.top[i + 1][1]);
+      ctx.lineTo(job.top[i][0], job.top[i][1]);
       ctx.closePath();
       ctx.fill();
     }
-    ctx.fillStyle = roof;
+    ctx.fillStyle = mixHex(wallDark, roof, Math.max(roofShade, 0.32));
     ctx.beginPath();
-    top.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+    job.top.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
@@ -2641,9 +2744,15 @@ function drawBuildings(w, h) {
 }
 
 async function tryWebGPU() {
+  const gpu = globalThis.navigator && globalThis.navigator.gpu;
   const el = document.getElementById("gpu");
-  if (!el) return;
-  el.textContent = await probeGpuLabel(globalThis.navigator && globalThis.navigator.gpu);
+  if (el) el.textContent = await probeGpuLabel(gpu);
+  await acquireGpuDevice(gpu);
+  try {
+    await computeWallShades(gpu, [{ x: 1, y: 0, z: 0 }], { x: 1, y: 0, z: 0 });
+  } catch {
+    /* degrade */
+  }
 }
 
 let drag = null;

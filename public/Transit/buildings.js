@@ -2,6 +2,7 @@
 
 export const BUILDING_ZOOM = 12.6;
 export const BUILDING_CAP = 280;
+export const MOTION_BUILDING_CAP = 800;
 export const METRO_DEPTH_M = -24;
 const MAX_BUILDING_RING_POINTS = 2000;
 export const BUILDING_ENDPOINTS = [
@@ -67,7 +68,7 @@ function closedRing(pts) {
 }
 
 export function parseOverpassBuildings(raw, cap) {
-  const limit = Number.isFinite(cap) ? Math.min(BUILDING_CAP, Math.max(0, Math.floor(cap))) : BUILDING_CAP;
+  const limit = Number.isFinite(cap) ? Math.min(MOTION_BUILDING_CAP, Math.max(0, Math.floor(cap))) : BUILDING_CAP;
   if (!raw || typeof raw !== "object") return [];
   const out = [];
   const elements = Array.isArray(raw.elements) ? raw.elements : [];
@@ -109,12 +110,40 @@ export function wallQuads(ring, dx, dy) {
   return quads;
 }
 
-export function overpassQuery(bbox) {
-  if (!bbox || !Number.isFinite(bbox.south) || !Number.isFinite(bbox.west) || !Number.isFinite(bbox.north) || !Number.isFinite(bbox.east) || bbox.south < -90 || bbox.north > 90 || bbox.west < -180 || bbox.east > 180 || bbox.south >= bbox.north || bbox.west >= bbox.east || bbox.north - bbox.south > 1 || bbox.east - bbox.west > 1) return "";
+function validBbox(bbox) {
+  return !!(
+    bbox &&
+    Number.isFinite(bbox.south) &&
+    Number.isFinite(bbox.west) &&
+    Number.isFinite(bbox.north) &&
+    Number.isFinite(bbox.east) &&
+    bbox.south >= -90 &&
+    bbox.north <= 90 &&
+    bbox.west >= -180 &&
+    bbox.east <= 180 &&
+    bbox.south < bbox.north &&
+    bbox.west < bbox.east &&
+    bbox.north - bbox.south <= 1 &&
+    bbox.east - bbox.west <= 1
+  );
+}
+
+export function overpassQuery(bbox, cap) {
+  if (!validBbox(bbox)) return "";
+  const limit = Number.isFinite(cap) ? Math.min(MOTION_BUILDING_CAP, Math.max(1, Math.floor(cap))) : BUILDING_CAP;
   const s = [bbox.south, bbox.west, bbox.north, bbox.east]
     .map((n) => (Number.isFinite(n) ? n.toFixed(5) : ""))
     .join(",");
-  return `[out:json][timeout:12];way["building"](${s});out tags geom ${BUILDING_CAP};`;
+  return `[out:json][timeout:12];way["building"](${s});out tags geom ${limit};`;
+}
+
+export function overpassMotionQuery(inner, outer, cap) {
+  if (!validBbox(inner) || !validBbox(outer)) return "";
+  const limit = Number.isFinite(cap) ? Math.min(MOTION_BUILDING_CAP, Math.max(1, Math.floor(cap))) : MOTION_BUILDING_CAP;
+  const ring = (b) => [b.south, b.west, b.north, b.east].map((n) => n.toFixed(5)).join(",");
+  const a = ring(inner);
+  const b = ring(outer);
+  return `[out:json][timeout:20];(way["building"](${a});way["building"]["building:levels"](${b});way["building"]["height"](${b});way["building"~"apartments|commercial|office|retail|industrial|hotel|cathedral|university|hospital"](${b}););out tags geom ${limit};`;
 }
 
 export function overpassPostBody(query) {

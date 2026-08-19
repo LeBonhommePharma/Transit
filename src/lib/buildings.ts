@@ -7,6 +7,7 @@ export type BuildingFootprint = {
 
 export const BUILDING_ZOOM = 12.6;
 export const BUILDING_CAP = 280;
+export const MOTION_BUILDING_CAP = 800;
 const MAX_BUILDING_RING_POINTS = 2_000;
 
 export function buildingHeightMeters(tags: unknown): number {
@@ -32,7 +33,9 @@ export function parseOverpassBuildings(raw: unknown, cap = BUILDING_CAP): Buildi
   if (!raw || typeof raw !== "object") return [];
   const root = raw as Record<string, unknown>;
   const out: BuildingFootprint[] = [];
-  const limit = Number.isFinite(cap) ? Math.min(BUILDING_CAP, Math.max(0, Math.floor(cap))) : BUILDING_CAP;
+  const limit = Number.isFinite(cap)
+    ? Math.min(MOTION_BUILDING_CAP, Math.max(0, Math.floor(cap)))
+    : BUILDING_CAP;
   const elements = Array.isArray(root.elements) ? root.elements.slice(0, limit * 2) : [];
   for (const item of elements) {
     if (!item || typeof item !== "object") continue;
@@ -105,27 +108,49 @@ export function wallQuads(
   return quads;
 }
 
-export function overpassQuery(bbox: { south: number; west: number; north: number; east: number }): string {
-  if (
-    !Number.isFinite(bbox.south) ||
-    !Number.isFinite(bbox.west) ||
-    !Number.isFinite(bbox.north) ||
-    !Number.isFinite(bbox.east) ||
-    bbox.south < -90 ||
-    bbox.north > 90 ||
-    bbox.west < -180 ||
-    bbox.east > 180 ||
-    bbox.south >= bbox.north ||
-    bbox.west >= bbox.east ||
-    bbox.north - bbox.south > 1 ||
-    bbox.east - bbox.west > 1
-  ) {
-    return "";
-  }
+function validBbox(bbox: { south: number; west: number; north: number; east: number } | null | undefined): boolean {
+  if (!bbox) return false;
+  return (
+    Number.isFinite(bbox.south) &&
+    Number.isFinite(bbox.west) &&
+    Number.isFinite(bbox.north) &&
+    Number.isFinite(bbox.east) &&
+    bbox.south >= -90 &&
+    bbox.north <= 90 &&
+    bbox.west >= -180 &&
+    bbox.east <= 180 &&
+    bbox.south < bbox.north &&
+    bbox.west < bbox.east &&
+    bbox.north - bbox.south <= 1 &&
+    bbox.east - bbox.west <= 1
+  );
+}
+
+export function overpassQuery(
+  bbox: { south: number; west: number; north: number; east: number },
+  cap = BUILDING_CAP,
+): string {
+  if (!validBbox(bbox)) return "";
+  const limit = Number.isFinite(cap) ? Math.min(MOTION_BUILDING_CAP, Math.max(1, Math.floor(cap))) : BUILDING_CAP;
   const s = [bbox.south, bbox.west, bbox.north, bbox.east]
     .map((n) => (Number.isFinite(n) ? n.toFixed(5) : ""))
     .join(",");
-  return `[out:json][timeout:12];way["building"](${s});out tags geom ${BUILDING_CAP};`;
+  return `[out:json][timeout:12];way["building"](${s});out tags geom ${limit};`;
+}
+
+/** Inner ring: all footprints. Outer ring: taller/landmark LOD so the vis area is covered, not a 700 m dump. */
+export function overpassMotionQuery(
+  inner: { south: number; west: number; north: number; east: number },
+  outer: { south: number; west: number; north: number; east: number },
+  cap = MOTION_BUILDING_CAP,
+): string {
+  if (!validBbox(inner) || !validBbox(outer)) return "";
+  const limit = Number.isFinite(cap) ? Math.min(MOTION_BUILDING_CAP, Math.max(1, Math.floor(cap))) : MOTION_BUILDING_CAP;
+  const ring = (b: { south: number; west: number; north: number; east: number }) =>
+    [b.south, b.west, b.north, b.east].map((n) => n.toFixed(5)).join(",");
+  const a = ring(inner);
+  const b = ring(outer);
+  return `[out:json][timeout:20];(way["building"](${a});way["building"]["building:levels"](${b});way["building"]["height"](${b});way["building"~"apartments|commercial|office|retail|industrial|hotel|cathedral|university|hospital"](${b}););out tags geom ${limit};`;
 }
 
 export function overpassPostBody(query: string): string {
