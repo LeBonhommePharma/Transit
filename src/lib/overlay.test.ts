@@ -20,6 +20,45 @@ function loadCity(city: string): { atlas: Atlas; timetable: Timetable } {
   };
 }
 
+function cssBlock(html: string, start: string): string {
+  const i = html.indexOf(start);
+  assert.ok(i >= 0, `missing ${start}`);
+  const open = html.indexOf("{", i);
+  let depth = 0;
+  for (let n = open; n < html.length; n++) {
+    if (html[n] === "{") depth += 1;
+    else if (html[n] === "}") {
+      depth -= 1;
+      if (depth === 0) return html.slice(open + 1, n);
+    }
+  }
+  return "";
+}
+
+function cssToken(block: string, name: string): string {
+  const m = block.match(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{3,8})`));
+  assert.ok(m, `missing token ${name}`);
+  return m![1];
+}
+
+function relativeLuminance(hex: string): number {
+  const raw = hex.replace("#", "");
+  const full = raw.length === 3 ? raw.split("").map((c) => c + c).join("") : raw;
+  const chan = (i: number) => {
+    const c = parseInt(full.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * chan(0) + 0.7152 * chan(2) + 0.0722 * chan(4);
+}
+
+function contrastRatio(a: string, b: string): number {
+  const l1 = relativeLuminance(a);
+  const l2 = relativeLuminance(b);
+  const hi = Math.max(l1, l2);
+  const lo = Math.min(l1, l2);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
 describe("overlay polish and escape", () => {
   it("escapes untrusted overlay names and drives the shipped helper", async () => {
     const dirty = `<img src=x onerror=alert(1)> & "stop"`;
@@ -76,6 +115,23 @@ describe("overlay polish and escape", () => {
       html,
       /connect-src 'self' https:\/\/api\.stm\.info https:\/\/quebec\.publicbikesystem\.net https:\/\/gbfs\.velobixi\.com https:\/\/overpass-api\.de https:\/\/overpass\.kumi\.systems https:\/\/tiles\.openfreemap\.org https:\/\/api\.open-meteo\.com https:\/\/air-quality-api\.open-meteo\.com/,
     );
+    const rail = Number(html.match(/--rail:\s*([\d.]+)rem/)?.[1]);
+    assert.ok(Number.isFinite(rail) && rail > 0);
+    const citiesW = 375 - 12 - 12 - rail * 16;
+    assert.ok(citiesW >= 180, `375px city strip too narrow: ${citiesW}`);
+    assert.match(html, /\.at \{[^}]*flex:\s*0 0 auto/);
+    assert.match(html, /\.tools, \.seg \{[\s\S]*?overflow-x:\s*auto/);
+    assert.match(html, /overflow-wrap:\s*anywhere/);
+    assert.match(html, /#nav \{[\s\S]*?right:\s*calc\(var\(--safe-right\) \+ var\(--rail\)/);
+    assert.match(html, /#geo-ask \{[\s\S]*?var\(--rail\)/);
+    const day = cssBlock(html, ":root, html.day");
+    const night = cssBlock(html, "html.night");
+    assert.ok(contrastRatio(cssToken(day, "--ink"), cssToken(day, "--paper")) >= 4.5);
+    assert.ok(contrastRatio(cssToken(day, "--muted"), cssToken(day, "--paper")) >= 4.5);
+    assert.ok(contrastRatio(cssToken(day, "--chip-ink"), cssToken(day, "--chip")) >= 4.5);
+    assert.ok(contrastRatio(cssToken(night, "--ink"), cssToken(night, "--paper")) >= 4.5);
+    assert.ok(contrastRatio(cssToken(night, "--muted"), cssToken(night, "--paper")) >= 4.5);
+    assert.ok(contrastRatio(cssToken(night, "--chip-ink"), cssToken(night, "--chip")) >= 4.5);
   });
 
   it("yields no trip on junk clock or dest and stays outside coverage", () => {

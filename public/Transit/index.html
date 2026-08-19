@@ -212,6 +212,11 @@
         }
         .sheet.tall { max-height: 78dvh; }
         .sheet.folded { bottom: var(--safe-bottom); width: auto; left: var(--safe-left); right: auto; max-height: 68px; }
+        #nav {
+          top: calc(var(--safe-top) + 56px);
+          right: calc(var(--safe-right) + var(--rail) + 6px);
+        }
+        #map-hud { bottom: calc(var(--safe-bottom) + 76px); }
       }
       @media (prefers-reduced-motion: reduce) {
         .sheet { transition: none; }
@@ -229,19 +234,21 @@
         margin-bottom: 10px;
         flex-wrap: nowrap;
         white-space: nowrap;
-        overflow-x: auto;
-        scrollbar-width: none;
+        min-width: 0;
       }
-      .toolbar::-webkit-scrollbar { display: none; }
       .tools, .seg {
         display: inline-flex;
         align-items: center;
-        flex-shrink: 0;
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow-x: auto;
+        scrollbar-width: none;
         gap: 2px;
         padding: 2px;
         border-radius: 999px;
         background: var(--well);
       }
+      .tools::-webkit-scrollbar, .seg::-webkit-scrollbar { display: none; }
       .toolbar button {
         border: 0;
         background: transparent;
@@ -287,7 +294,7 @@
         .toolbar button:active { transform: none; }
       }
       .seg button { min-height: 24px; min-width: 34px; padding: 4px 7px; }
-      .at { display: flex; align-items: center; margin-left: auto; min-width: 0; }
+      .at { display: flex; align-items: center; flex: 0 0 auto; margin-left: auto; }
       .at input {
         width: 6.5em;
         max-width: 100%;
@@ -408,9 +415,8 @@
       footer a { color: inherit; }
       #geo-ask {
         position: absolute;
-        left: 50%;
-        transform: translateX(-50%);
-        top: calc(var(--safe-top) + 52px);
+        left: var(--safe-left);
+        top: calc(var(--safe-top) + 56px);
         z-index: var(--z-ask);
         border: 0;
         border-radius: 999px;
@@ -422,10 +428,16 @@
         padding: 10px 14px;
         min-height: 44px;
         cursor: pointer;
-        max-width: min(440px, calc(100% - 24px));
+        max-width: calc(100% - var(--safe-left) - var(--safe-right) - var(--rail) - 8px);
         box-shadow: var(--shadow);
       }
       #geo-ask[hidden] { display: none; }
+      @media (min-width: 641px) {
+        #geo-ask {
+          left: calc(var(--safe-left) + min(412px, calc(100% - var(--safe-left) - var(--safe-right) - var(--rail))) + 8px);
+          max-width: min(280px, calc(100% - var(--safe-left) - var(--safe-right) - var(--rail) - 420px));
+        }
+      }
       #status-rail {
         position: absolute;
         top: var(--safe-top);
@@ -452,6 +464,8 @@
         font-variant-numeric: tabular-nums;
         color: var(--ink);
         text-align: right;
+        overflow-wrap: anywhere;
+        line-height: 1.35;
       }
       #heading { border-radius: 999px; letter-spacing: 0.04em; }
       #heading[hidden], #wx[hidden] { display: none; }
