@@ -10,11 +10,26 @@ import { departuresAtStop } from "./planner";
 import { activeServiceIndexes } from "./services";
 import { formatClock, minutesOfDay } from "./time";
 
-const CITIES = new Set(["quebec", "montreal", "sherbrooke", "trois-rivieres"]);
-
 function dataRoot(): string {
   return join(dirname(fileURLToPath(import.meta.url)), "..", "..", "public", "data");
 }
+
+function knownCities(): Set<string> {
+  try {
+    const table = JSON.parse(readFileSync(join(dataRoot(), "index.json"), "utf8")) as {
+      cities?: Array<{ city?: unknown }>;
+    };
+    const ids = (table.cities || [])
+      .map((row) => (typeof row.city === "string" ? row.city.trim().toLowerCase() : ""))
+      .filter((id) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id) && id.length <= 64);
+    if (ids.length) return new Set(ids);
+  } catch {
+    /* fall through */
+  }
+  return new Set(["quebec", "montreal", "sherbrooke", "trois-rivieres"]);
+}
+
+const CITIES = knownCities();
 
 function loadCity(city: string): { atlas: Atlas; timetable: Timetable } | null {
   if (!CITIES.has(city)) return null;
@@ -39,7 +54,7 @@ export function renderTransitSnapshot(opts: {
   const query = typeof opts.query === "string" ? opts.query.trim() : "";
   const lines: string[] = ["Rive"];
   if (!city || !CITIES.has(city)) {
-    lines.push("Ville inconnue. Choisis quebec, montreal, sherbrooke ou trois-rivieres.");
+    lines.push(`Ville inconnue. Choisis ${[...CITIES].join(", ")}.`);
     return lines.join("\n");
   }
   const pack = loadCity(city);

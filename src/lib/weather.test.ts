@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import {
   decodeConditions,
   formatShownLine,
+  precipIntensity,
   shouldDrawPrecip,
   shownConditions,
 } from "./conditions";
@@ -73,6 +74,19 @@ describe("weather decode", () => {
     const icy = decodeConditions({ current: { temperature_2m: -3, precipitation: 0.4, rain: 0, snowfall: 0.4 } });
     assert.equal(icy.road, "icy");
     assert.equal(shownConditions(icy).road, "glissante");
+    const line = formatShownLine(shown);
+    assert.match(line, /pluie/);
+    assert.match(line, /chaussée/);
+    assert.match(line, /vent/);
+    assert.match(line, /UV/);
+    assert.match(line, /AQI/);
+    assert.ok(precipIntensity(WET) > 0);
+    const accumOnly = {
+      current: { precipitation: 0, rain: 0, temperature_2m: 8 },
+      hourly: { precipitation: [0.4, 0.3, 0.2] },
+    };
+    assert.ok(shownConditions(accumOnly).precip);
+    assert.equal(shouldDrawPrecip(accumOnly), true);
   });
 
   it("hides quiet UV, wind, precip, and dry roads on a clear payload", () => {
@@ -108,9 +122,14 @@ describe("weather decode", () => {
       decodeConditions: typeof decodeConditions;
       shownConditions: typeof shownConditions;
       shouldDrawPrecip: typeof shouldDrawPrecip;
+      formatShownLine: typeof formatShownLine;
+      precipIntensity: typeof precipIntensity;
     };
     const shown = shipped.shownConditions(WET);
     assert.ok(shown.precip && shown.wind && shown.road);
+    assert.match(shipped.formatShownLine(shown), /pluie/);
+    assert.ok(shipped.precipIntensity(WET) > 0);
+    assert.equal(shipped.precipIntensity(CLEAR), 0);
     const visJs = (await import(pathToFileURL(join(process.cwd(), "public", "Transit", "visibility.js")).href)) as {
       weatherFromOpenMeteo: typeof weatherFromOpenMeteo;
     };

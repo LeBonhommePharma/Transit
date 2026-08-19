@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { describe, it } from "node:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { daytimeClock } from "./clock";
+import { formatShownLine, shownConditions } from "./conditions";
 import { renderTransitSnapshot, runTui } from "./tui";
 
 const WET = {
@@ -27,10 +30,29 @@ describe("Transit TUI", () => {
     assert.match(first, /\d+ min/);
     assert.equal(second, first);
     assert.match(first, /801|800|807|80/);
+    assert.match(first, new RegExp(formatShownLine(shownConditions(WET)).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    const calm = renderTransitSnapshot({ city: "quebec", query: "Youville", weather: { current: { precipitation: 0, uv_index: 1, european_aqi: 10, wind_speed_10m: 2 } }, now });
+    assert.doesNotMatch(calm, /pluie|chaussée|vent |UV |AQI /);
     const logs: string[] = [];
-    const code = await runTui(["quebec", "Youville"], { log: (s) => logs.push(s), error: () => {} });
+    const prev = process.env.RIVE_WEATHER_JSON;
+    process.env.RIVE_WEATHER_JSON = JSON.stringify(WET);
+    let code = 1;
+    try {
+      code = await runTui(["quebec", "Youville"], { log: (s) => logs.push(s), error: () => {} });
+    } finally {
+      if (prev == null) delete process.env.RIVE_WEATHER_JSON;
+      else process.env.RIVE_WEATHER_JSON = prev;
+    }
     assert.equal(code, 0);
     assert.match(logs.join("\n"), /Youville/i);
+    assert.match(logs.join("\n"), /pluie|chaussée|vent|UV|AQI/);
+    const index = JSON.parse(readFileSync(join(process.cwd(), "public", "data", "index.json"), "utf8")) as {
+      cities?: Array<{ city?: string }>;
+    };
+    const cities = (index.cities || []).map((row) => row.city).filter(Boolean);
+    assert.ok(cities.includes("quebec"));
+    const src = readFileSync(join(process.cwd(), "src", "lib", "tui.ts"), "utf8");
+    assert.match(src, /index\.json/);
   });
 
   it("does not crash on a missing city or stop", async () => {
