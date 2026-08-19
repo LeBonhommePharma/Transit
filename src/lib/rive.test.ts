@@ -138,6 +138,7 @@ describe("hostile user input", () => {
     assert.match(html, /Rive Text|Rive Clock/);
     assert.match(html, /html\.night|--night|prefers-color-scheme:\s*dark/);
     assert.match(html, /html\.day|--paper/);
+    assert.match(html, /--hair|--ring|focus-visible/);
     assert.match(html, /id="refresh"|Actualiser/);
     assert.match(html, /id="fold"/);
     assert.match(html, /id="perms"/);
@@ -888,7 +889,7 @@ describe("planTrip", () => {
     assert.ok(first.legs.length > 0);
     assert.ok(
       first.legs.every(
-        (leg) => leg.kind === "walk" || leg.kind === "transit" || leg.kind === "bike",
+        (leg) => leg.kind === "walk" || leg.kind === "transit" || leg.kind === "bike" || leg.kind === "road",
       ),
     );
     for (const leg of first.legs) {
@@ -1036,7 +1037,7 @@ describe("planTrip", () => {
     assert.ok(first.legs.length > 0);
     assert.ok(
       first.legs.every(
-        (leg) => leg.kind === "walk" || leg.kind === "transit" || leg.kind === "bike",
+        (leg) => leg.kind === "walk" || leg.kind === "transit" || leg.kind === "bike" || leg.kind === "road",
       ),
     );
     for (const leg of first.legs) {

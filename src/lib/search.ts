@@ -207,6 +207,44 @@ export function searchAtlas(
   return hits.slice(0, Math.min(20, Math.max(1, Math.floor(Number.isFinite(limit) ? limit : 8))));
 }
 
+/** GPS inside this radius of a city center is “here”. Outside is not invented membership. */
+export const CITY_MEMBERSHIP_M = 40_000;
+
+export function supportedCityCenters(): Record<string, { lon: number; lat: number }> {
+  return {
+    quebec: { lon: -71.2082, lat: 46.8131 },
+    montreal: { lon: -73.5673, lat: 45.5017 },
+    sherbrooke: { lon: -71.8908, lat: 45.4042 },
+    "trois-rivieres": { lon: -72.5415, lat: 46.3432 },
+  };
+}
+
+/** Supported city containing the point, or null. Never invents the nearest city as here. */
+export function cityForPoint(
+  lon: unknown,
+  lat: unknown,
+  centers?: Record<string, { lon: number; lat: number }> | null,
+  maxMeters = CITY_MEMBERSHIP_M,
+): string | null {
+  const x = Number(lon);
+  const y = Number(lat);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || y < -90 || y > 90 || x < -180 || x > 180) return null;
+  const table = centers && typeof centers === "object" ? centers : supportedCityCenters();
+  const radius = Number.isFinite(maxMeters) && maxMeters > 0 ? maxMeters : CITY_MEMBERSHIP_M;
+  let best: string | null = null;
+  let bestM = Infinity;
+  for (const [id, center] of Object.entries(table)) {
+    if (!center || !Number.isFinite(center.lon) || !Number.isFinite(center.lat)) continue;
+    const meters = haversineMeters({ lon: x, lat: y }, center);
+    if (!Number.isFinite(meters) || meters > radius) continue;
+    if (meters < bestM) {
+      bestM = meters;
+      best = id;
+    }
+  }
+  return best;
+}
+
 export function isFinitePoint(point: { lon?: unknown; lat?: unknown } | null | undefined): point is {
   lon: number;
   lat: number;

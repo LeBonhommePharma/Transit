@@ -181,6 +181,43 @@ export function overpassMotionQuery(center, loadM, continueM, caps) {
   );
 }
 
+export function overpassAccessQuery(center, radiusM, cap) {
+  const lat = Number(center && center.lat);
+  const lon = Number(center && center.lon);
+  const r = finiteRadiusM(radiusM == null ? 700 : radiusM);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return "";
+  if (r == null) return "";
+  const limit = Number.isFinite(cap) ? Math.min(120, Math.max(1, Math.floor(cap))) : 64;
+  const qlat = coarseCoord(lat).toFixed(4);
+  const qlon = coarseCoord(lon).toFixed(4);
+  const around = `around:${Math.round(Math.min(r, 900))},${qlat},${qlon}`;
+  return `[out:json][timeout:10];(way["highway"~"cycleway|path|footway|pedestrian"](${around});way["highway"~"motorway|trunk|primary|secondary|tertiary|residential"](${around}););out geom ${limit};`;
+}
+
+export function parseOverpassWays(raw, cap) {
+  if (!raw || typeof raw !== "object") return [];
+  const elements = Array.isArray(raw.elements) ? raw.elements : [];
+  const limit = Number.isFinite(cap) ? Math.min(120, Math.max(0, Math.floor(cap))) : 64;
+  const out = [];
+  for (const el of elements) {
+    if (!el || typeof el !== "object") continue;
+    const hwy = el.tags && typeof el.tags.highway === "string" ? el.tags.highway : "";
+    const geom = Array.isArray(el.geometry) ? el.geometry : [];
+    const line = [];
+    for (const pt of geom.slice(0, 400)) {
+      const lon = Number(pt && pt.lon);
+      const lat = Number(pt && pt.lat);
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+      line.push([lon, lat]);
+    }
+    if (line.length < 2) continue;
+    const kind = /cycleway/.test(hwy) ? "cycle" : /footway|path|pedestrian/.test(hwy) ? "foot" : "road";
+    out.push({ kind, line });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export function overpassPostBody(query) {
   return `data=${encodeURIComponent(query || "")}`;
 }

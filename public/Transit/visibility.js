@@ -152,10 +152,20 @@ export function weatherFromOpenMeteo(raw) {
   const forecastCode = codeList.length ? codeList[Math.min(1, codeList.length - 1)] : undefined;
   const visibilityM = current ? current.visibility : undefined;
   const weatherCode = current ? current.weather_code : undefined;
-  if (visibilityM == null && weatherCode == null && forecastVis == null && forecastCode == null) return null;
+  if (visibilityM == null && weatherCode == null && forecastVis == null && forecastCode == null && !current) return null;
   return {
     visibilityM,
     weatherCode,
+    precipitation: current ? current.precipitation : undefined,
+    rain: current ? current.rain : undefined,
+    snowfall: current ? current.snowfall : undefined,
+    uv_index: current ? current.uv_index : undefined,
+    european_aqi: current ? current.european_aqi : undefined,
+    us_aqi: current ? current.us_aqi : undefined,
+    wind_speed_10m: current ? current.wind_speed_10m : undefined,
+    wind_direction_10m: current ? current.wind_direction_10m : undefined,
+    temperature_2m: current ? current.temperature_2m : undefined,
+    hourly: hourly || undefined,
     forecast: { visibilityM: forecastVis, weatherCode: forecastCode },
   };
 }

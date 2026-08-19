@@ -2,9 +2,17 @@
 
 import { useEffect, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
-import type { GeoJSONSource, Map as MapLibreMap, MapGeoJSONFeature } from "maplibre-gl";
-import type { Atlas, AtlasStop, CityId, Itinerary, Place } from "@/lib/atlas/types";
-import { decodePolyline, lineSlice } from "@/lib/geo";
+import type { FilterSpecification, GeoJSONSource, Map as MapLibreMap, MapGeoJSONFeature } from "maplibre-gl";
+import type { Atlas, AtlasStop, CityId, Itinerary } from "@/lib/atlas/types";
+import { decodePolyline } from "@/lib/geo";
+import {
+  TRIP_ROAD_FILTER,
+  TRIP_ROAD_PAINT,
+  TRIP_TRANSIT_FILTER,
+  TRIP_WALK_FILTER,
+  itineraryCollection,
+  mapPoint,
+} from "@/lib/map-legs";
 
 const STYLE = "https://tiles.openfreemap.org/styles/positron";
 
@@ -77,46 +85,7 @@ function buildStopCollection(atlas: Atlas): GeoJSON.FeatureCollection {
   };
 }
 
-function itineraryCollection(itinerary: Itinerary | null): GeoJSON.FeatureCollection {
-  const features: GeoJSON.Feature[] = [];
-  if (!itinerary) return { type: "FeatureCollection", features };
-  itinerary.legs.forEach((leg, index) => {
-    const from = mapPoint(leg.from);
-    const to = mapPoint(leg.to);
-    if (leg.kind === "walk" || leg.kind === "bike") {
-      features.push({
-        type: "Feature",
-        properties: { kind: leg.kind, index },
-        geometry: {
-          type: "LineString",
-          coordinates: [
-            from,
-            to,
-          ],
-        },
-      });
-      return;
-    }
-    const full = decodePolyline(leg.line);
-    const coords =
-      full.length > 1 ? lineSlice(full, { lon: from[0], lat: from[1] }, { lon: to[0], lat: to[1] }) : [
-        from,
-        to,
-      ];
-    features.push({
-      type: "Feature",
-      properties: { kind: "transit", color: leg.color, index },
-      geometry: { type: "LineString", coordinates: coords },
-    });
-  });
-  return { type: "FeatureCollection", features };
-}
 
-function mapPoint(point: Place): [number, number] {
-  if (point.stopId) return [point.lon, point.lat];
-  // Keep exact GPS-origin coordinates out of third-party tile/viewport requests.
-  return [Math.round(point.lon * 100) / 100, Math.round(point.lat * 100) / 100];
-}
 
 export function MapView({
   city,
@@ -218,7 +187,7 @@ export function MapView({
         id: "rive-trip-walk",
         type: "line",
         source: "rive-trip",
-        filter: ["in", ["get", "kind"], ["literal", ["walk", "bike"]]],
+        filter: TRIP_WALK_FILTER as FilterSpecification,
         paint: {
           "line-color": [
             "match",
@@ -233,10 +202,17 @@ export function MapView({
         },
       });
       map.addLayer({
+        id: "rive-trip-road",
+        type: "line",
+        source: "rive-trip",
+        filter: TRIP_ROAD_FILTER as FilterSpecification,
+        paint: { ...TRIP_ROAD_PAINT },
+      });
+      map.addLayer({
         id: "rive-trip-line",
         type: "line",
         source: "rive-trip",
-        filter: ["==", ["get", "kind"], "transit"],
+        filter: TRIP_TRANSIT_FILTER as FilterSpecification,
         paint: {
           "line-color": ["get", "color"],
           "line-width": 6,

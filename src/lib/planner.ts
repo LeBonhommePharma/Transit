@@ -10,8 +10,8 @@ import type {
 } from "./atlas/types";
 import type { BikeStation } from "./bikeshare";
 import { bikeMinutes, nearbyStations } from "./bikeshare";
-import { haversineMeters, walkMinutes } from "./geo";
-import { nearbyStops, placeFromStop } from "./search";
+import { haversineMeters, roadMinutes, walkMinutes } from "./geo";
+import { isFinitePoint, nearbyStops, placeFromStop } from "./search";
 import { nextAfter } from "./time";
 
 function stopById(atlas: Atlas): Map<string, AtlasStop> {
@@ -162,6 +162,7 @@ export function planTrip(
   active: Set<number>,
   bikes: BikeStation[] = [],
 ): Itinerary[] {
+  if (!atlas || !timetable || !isFinitePoint(from) || !isFinitePoint(to) || !Number.isFinite(now)) return [];
   const routes = routeById(atlas);
   const stops = stopById(atlas);
   const rapidStops = atlas.stops.filter((stop) => {
@@ -197,17 +198,34 @@ export function planTrip(
   const found: Itinerary[] = [];
 
   const walkM = haversineMeters(from, to);
-  if (walkM <= 2800) {
+  if (Number.isFinite(walkM) && walkM <= 2800) {
     const minutes = walkMinutes(walkM);
-    found.push({
-      id: itineraryId(["walk", from.label, to.label]),
-      minutes,
-      walkMeters: Math.round(walkM),
-      transfers: 0,
-      depart: now,
-      arrive: now + minutes,
-      legs: [{ kind: "walk", minutes, meters: Math.round(walkM), from, to }],
-    });
+    if (minutes > 0) {
+      found.push({
+        id: itineraryId(["walk", from.label, to.label]),
+        minutes,
+        walkMeters: Math.round(walkM),
+        transfers: 0,
+        depart: now,
+        arrive: now + minutes,
+        legs: [{ kind: "walk", minutes, meters: Math.round(walkM), from, to }],
+      });
+    }
+  }
+  if (Number.isFinite(walkM) && walkM >= 500 && walkM < 200_000) {
+    const minutes = roadMinutes(walkM);
+    const walkMin = walkMinutes(walkM);
+    if (minutes > 0 && minutes !== walkMin) {
+      found.push({
+        id: itineraryId(["road", from.label, to.label]),
+        minutes,
+        walkMeters: 0,
+        transfers: 0,
+        depart: now,
+        arrive: now + minutes,
+        legs: [{ kind: "road", minutes, meters: Math.round(walkM), from, to }],
+      });
+    }
   }
 
   for (const origin of origins) {
@@ -509,7 +527,9 @@ export function planTrip(
     if (item.legs.some((leg) => leg.kind === "bike") && !item.legs.some((leg) => leg.kind === "transit")) {
       return "velo";
     }
+    if (item.legs.some((leg) => leg.kind === "road")) return "auto";
     if (item.legs.some((leg) => leg.kind === "transit" && "type" in leg && leg.type === 1)) return "metro";
+    if (item.legs.some((leg) => leg.kind === "transit" && "type" in leg && leg.type === 2)) return "train";
     if (item.legs.some((leg) => leg.kind === "transit")) return "bus";
     return "other";
   };
@@ -520,7 +540,9 @@ export function planTrip(
           ? `w:${leg.to.label}`
           : leg.kind === "bike"
             ? `b:${leg.system}:${leg.from.label}`
-            : `t:${leg.shortName}:${leg.headsign}:${leg.from.stopId}`,
+            : leg.kind === "road"
+              ? `r:${leg.to.label}`
+              : `t:${leg.shortName}:${leg.headsign}:${leg.from.stopId}`,
       )
       .join(">");
   const take = (item: Itinerary) => {
@@ -534,7 +556,7 @@ export function planTrip(
     take(item);
     if (unique.length >= 6) break;
   }
-  for (const family of ["marche", "velo", "metro", "bus"]) {
+  for (const family of ["marche", "velo", "auto", "metro", "train", "bus"]) {
     if (unique.some((item) => familyOf(item) === family)) continue;
     const extra = pool.find((item) => familyOf(item) === family);
     if (extra) take(extra);

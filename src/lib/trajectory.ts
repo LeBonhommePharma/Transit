@@ -40,17 +40,62 @@ function isAccess(leg: TripLeg | undefined): boolean {
   return Boolean(leg && (leg.kind === "walk" || leg.kind === "bike"));
 }
 
+export function isAccessLeg(leg: { kind?: unknown } | null | undefined): boolean {
+  return Boolean(leg && (leg.kind === "walk" || leg.kind === "bike" || leg.kind === "road"));
+}
+
+export function navStepLabel(leg: unknown): string {
+  if (!leg || typeof leg !== "object") return "";
+  const row = leg as {
+    kind?: unknown;
+    label?: unknown;
+    shortName?: unknown;
+    headsign?: unknown;
+  };
+  if (row.kind === "walk") return typeof row.label === "string" && row.label ? row.label : "À pied";
+  if (row.kind === "bike") return typeof row.label === "string" && row.label ? row.label : "Vélo";
+  if (row.kind === "road") return typeof row.label === "string" && row.label ? row.label : "Auto";
+  if (row.kind === "transit") {
+    const name = typeof row.shortName === "string" ? row.shortName : "";
+    const head = typeof row.headsign === "string" ? row.headsign : "";
+    return [name, head].filter(Boolean).join(" · ");
+  }
+  return "";
+}
+
+export function tripStrokeStyle(leg: unknown): { dash: number[]; color: string; width: number } {
+  if (!leg || typeof leg !== "object") return { dash: [], color: "#6a655e", width: 3 };
+  const row = leg as { kind?: unknown; color?: unknown; type?: unknown };
+  if (row.kind === "walk") return { dash: [6, 7], color: "#6a655e", width: 3.2 };
+  if (row.kind === "bike") return { dash: [6, 7], color: "#0b6bcb", width: 3.2 };
+  if (row.kind === "road") return { dash: [], color: "#5c6570", width: 4 };
+  const tunnel = row.type === 1;
+  const color = typeof row.color === "string" && row.color ? row.color : "#0b6bcb";
+  return { dash: tunnel ? [6, 5] : [], color, width: tunnel ? 5 : 6 };
+}
+
+export function transitMixName(type: unknown): string {
+  if (type === 1) return "métro";
+  if (type === 2) return "train";
+  return "bus";
+}
+
 export function mixLabel(legs: TripLeg[]): string {
+  if (!Array.isArray(legs) || legs.length === 0) return "marche";
   const parts: string[] = [];
   for (const leg of legs) {
+    if (!leg || typeof leg !== "object") continue;
     const name =
       leg.kind === "walk"
         ? "marche"
         : leg.kind === "bike"
           ? "vélo"
-          : leg.kind === "transit" && "type" in leg && leg.type === 1
-            ? "métro"
-            : "bus";
+          : leg.kind === "road"
+            ? "auto"
+            : leg.kind === "transit"
+              ? transitMixName("type" in leg ? leg.type : undefined)
+              : "";
+    if (!name) continue;
     if (parts[parts.length - 1] !== name) parts.push(name);
   }
   return parts.join(" + ") || "marche";

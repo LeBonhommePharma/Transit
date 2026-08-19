@@ -74,7 +74,14 @@ export function invertPitch(
 }
 
 export function walkMinutes(meters: number): number {
+  if (!Number.isFinite(meters) || meters < 0) return 0;
   return Math.max(1, Math.round(meters / 75));
+}
+
+/** Urban road / taxi / Uber-style minutes. Not a booking. Junk → 0. */
+export function roadMinutes(meters: number): number {
+  if (!Number.isFinite(meters) || meters < 0) return 0;
+  return Math.max(1, Math.round(meters / 580));
 }
 
 /** Display meters to the tenth. Non-finite → empty. */

@@ -141,6 +141,13 @@ export type TripLeg =
       to: Place;
     }
   | {
+      kind: "road";
+      minutes: number;
+      meters: number;
+      from: Place;
+      to: Place;
+    }
+  | {
       kind: "transit";
       minutes: number;
       routeId: string;

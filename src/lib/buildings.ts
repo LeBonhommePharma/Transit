@@ -190,6 +190,56 @@ export function overpassMotionQuery(
   );
 }
 
+/** Working-set paths/roads around the rider. Not a metro-wide highway dump. */
+export function overpassAccessQuery(
+  center: { lat: unknown; lon: unknown },
+  radiusM = 700,
+  cap = 64,
+): string {
+  const lat = Number(center && center.lat);
+  const lon = Number(center && center.lon);
+  const r = finiteRadiusM(radiusM);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return "";
+  if (r == null) return "";
+  const limit = Number.isFinite(cap) ? Math.min(120, Math.max(1, Math.floor(cap))) : 64;
+  const qlat = coarseCoord(lat).toFixed(4);
+  const qlon = coarseCoord(lon).toFixed(4);
+  const around = `around:${Math.round(Math.min(r, 900))},${qlat},${qlon}`;
+  return `[out:json][timeout:10];(way["highway"~"cycleway|path|footway|pedestrian"](${around});way["highway"~"motorway|trunk|primary|secondary|tertiary|residential"](${around}););out geom ${limit};`;
+}
+
+export type AccessWay = { kind: "cycle" | "foot" | "road"; line: [number, number][] };
+
+export function parseOverpassWays(raw: unknown, cap = 64): AccessWay[] {
+  if (!raw || typeof raw !== "object") return [];
+  const root = raw as { elements?: unknown };
+  const elements = Array.isArray(root.elements) ? root.elements : [];
+  const limit = Number.isFinite(cap) ? Math.min(120, Math.max(0, Math.floor(cap))) : 64;
+  const out: AccessWay[] = [];
+  for (const item of elements) {
+    if (!item || typeof item !== "object") continue;
+    const el = item as { tags?: { highway?: unknown }; geometry?: Array<{ lon?: unknown; lat?: unknown }> };
+    const hwy = typeof el.tags?.highway === "string" ? el.tags.highway : "";
+    const geom = Array.isArray(el.geometry) ? el.geometry : [];
+    const line: [number, number][] = [];
+    for (const pt of geom.slice(0, 400)) {
+      const lon = Number(pt && pt.lon);
+      const lat = Number(pt && pt.lat);
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+      line.push([lon, lat]);
+    }
+    if (line.length < 2) continue;
+    const kind: AccessWay["kind"] = /cycleway/.test(hwy)
+      ? "cycle"
+      : /footway|path|pedestrian/.test(hwy)
+        ? "foot"
+        : "road";
+    out.push({ kind, line });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export function overpassPostBody(query: string): string {
   return `data=${encodeURIComponent(query || "")}`;
 }

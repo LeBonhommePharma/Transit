@@ -19,9 +19,15 @@ import {
   livePulseEnd,
   lineStrokeColor,
   livePulseFromTransit,
+  mixLabel,
+  navStepLabel,
   parseClock24,
   rankByDoorToDoor,
+  roadMinutes,
   snapToShape,
+  cityForPoint,
+  escapeHtml,
+  tripStrokeStyle,
 } from "./rive-kit.js";
 import {
   BUILDING_ENDPOINTS,
@@ -30,15 +36,18 @@ import {
   METRO_DEPTH_M,
   applyPitch,
   invertPitch,
+  overpassAccessQuery,
   overpassMotionQuery,
   overpassPostBody,
   parseOverpassBuildings,
+  parseOverpassWays,
 } from "./buildings.js";
 import {
   motionBuildingQueryAllowed,
   motionViewBbox,
   weatherFromOpenMeteo,
 } from "./visibility.js";
+import { formatShownLine, shouldDrawPrecip, shownConditions, precipIntensity } from "./conditions.js";
 import { BIKE_FEEDS, feedUrl, mergeStations, nearbyStations } from "./bikes.js";
 
 const TZ = "America/Montreal";
@@ -48,6 +57,8 @@ const state = {
   cityCenters: {
     quebec: { lon: -71.2082, lat: 46.8131 },
     montreal: { lon: -73.5673, lat: 45.5017 },
+    sherbrooke: { lon: -71.8908, lat: 45.4042 },
+    "trois-rivieres": { lon: -72.5415, lat: 46.3432 },
   },
   atlas: null,
   timetable: null,
@@ -67,6 +78,7 @@ const state = {
   pois: [],
   searchPois: [],
   buildings: [],
+  ways: [],
   weather: null,
   bikes: [],
   vehicles: [],
@@ -424,17 +436,8 @@ function fillClockInput(force) {
   input.value = formatClock(minutesOfDay(new Date()));
 }
 
-function cityForPoint(lon, lat) {
-  let best = state.city;
-  let bestDistance = Infinity;
-  for (const [id, center] of Object.entries(state.cityCenters)) {
-    const distance = (lon - center.lon) ** 2 + (lat - center.lat) ** 2;
-    if (distance < bestDistance) {
-      best = id;
-      bestDistance = distance;
-    }
-  }
-  return best;
+function detectCity(lon, lat) {
+  return cityForPoint(lon, lat, state.cityCenters);
 }
 
 function hopSum(hops, from, to) {
@@ -476,7 +479,7 @@ function planFromHere(from, destStop, now, active) {
     if (stop.temporary) return true;
     return (stop.routes || []).some((id) => {
       const route = routes.get(id);
-      return route && (route.type === 1 || /^80/.test(route.shortName));
+      return route && (route.type === 1 || route.type === 2 || /^80/.test(route.shortName));
     });
   });
   const origins = nearbyStops(poles, from, 900, 14).concat(nearbyStops(rapid, from, 1400, 8));
@@ -623,6 +626,33 @@ function planFromHere(from, destStop, now, active) {
       ],
     });
   }
+  if (Number.isFinite(walkM) && walkM >= 500 && walkM < 200000) {
+    const roadMin = roadMinutes(walkM);
+    const walkMin = Math.max(1, Math.round(walkM / 75));
+    if (roadMin > 0 && roadMin !== walkMin) {
+      found.push({
+        minutes: roadMin,
+        walkMeters: 0,
+        depart: now,
+        arrive: now + roadMin,
+        mix: "auto",
+        legs: [
+          {
+            kind: "road",
+            minutes: roadMin,
+            meters: Math.round(walkM),
+            label: `Auto ${formatMeters(walkM)}`,
+            from: { lon: from.lon, lat: from.lat },
+            to: { lon: destStop.lon, lat: destStop.lat },
+            line: [
+              [from.lon, from.lat],
+              [destStop.lon, destStop.lat],
+            ],
+          },
+        ],
+      });
+    }
+  }
   return annotateTimeGaps(rankByDoorToDoor(found).slice(0, 8));
 }
 
@@ -662,8 +692,8 @@ function nearbyLines(atlas, here, dest, radiusM = 1200) {
     }
   }
   return [...best.values()].sort((a, b) => {
-    const metroA = a.type === 1 ? 0 : 1;
-    const metroB = b.type === 1 ? 0 : 1;
+    const metroA = a.type === 1 ? 0 : a.type === 2 ? 1 : 2;
+    const metroB = b.type === 1 ? 0 : b.type === 2 ? 1 : 2;
     if (metroA !== metroB) return metroA - metroB;
     if (a.towardDest !== b.towardDest) return a.towardDest ? -1 : 1;
     return a.meters - b.meters;
@@ -1752,7 +1782,7 @@ function applyHere(lon, lat, source, at, follow) {
       Date.now(),
     );
   }
-  const city = cityForPoint(next.here.lon, next.here.lat);
+  const city = detectCity(next.here.lon, next.here.lat);
   const go = () => {
     if (snap) {
       state.camera.lon = next.here.lon;
@@ -1777,7 +1807,7 @@ function applyHere(lon, lat, source, at, follow) {
       scheduleWeather();
     }
   };
-  if (city !== state.city) {
+  if (city && city !== state.city) {
      document.querySelectorAll("[data-city]").forEach((button) => button.classList.toggle("on", button.dataset.city === city));
     loadCity(city).then(go);
     return;
@@ -1830,25 +1860,14 @@ function locate() {
   }
 }
 
-function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
 function safeColor(value, fallback = "#0071e3") {
   const color = typeof value === "string" ? value : "";
   return /^#[0-9a-f]{3,8}$/i.test(color) ? color : fallback;
 }
 
 function tripMix(trip) {
-  return (
-    trip.mix ||
-    (trip.legs || [])
-      .map((leg) =>
-        leg.kind === "walk" ? "marche" : leg.kind === "bike" ? "vélo" : leg.type === 1 ? "métro" : "bus",
-      )
-      .filter((name, i, all) => all[i - 1] !== name)
-      .join(" + ")
-  );
+  if (trip.mix) return trip.mix;
+  return mixLabel(trip.legs || []);
 }
 
 function tripLine(trip) {
@@ -1904,8 +1923,9 @@ function renderTrips() {
         const gap = trip.gap > 0 ? `+${trip.gap} min de plus` : "Le plus vite";
         const legs = (trip.legs || [])
           .map((leg) => {
-            if (leg.kind === "walk" || leg.kind === "bike") {
-              return `<div class="row"><span class="badge" style="background:#e8eaed;color:#1d1d1f">${leg.kind === "bike" ? "vélo" : "à pied"}</span><div>${escapeHtml(leg.label || "")}</div></div>`;
+            if (leg.kind === "walk" || leg.kind === "bike" || leg.kind === "road") {
+              const tag = leg.kind === "bike" ? "vélo" : leg.kind === "road" ? "auto" : "à pied";
+              return `<div class="row"><span class="badge access">${tag}</span><div>${escapeHtml(leg.label || "")}</div></div>`;
             }
             return `<div class="row">
               <span class="badge" style="background:${safeColor(leg.color)};color:${safeColor(leg.textColor, "#ffffff")}">${escapeHtml(leg.shortName)}</span>
@@ -1977,12 +1997,7 @@ function paintNav() {
   }
   const trip = currentTrip();
   const leg = currentLeg();
-  const step =
-    !leg
-      ? tripMix(trip)
-      : leg.kind === "walk" || leg.kind === "bike"
-        ? leg.label || (leg.kind === "bike" ? "Vélo" : "À pied")
-        : `${leg.shortName} · ${leg.headsign || ""}`;
+  const step = !leg ? tripMix(trip) : navStepLabel(leg);
   nav.hidden = false;
   nav.innerHTML = `<div class="nav-step">${escapeHtml(step)}</div>
     <div class="nav-meta">${trip.minutes} min · ${escapeHtml(tripMix(trip))}</div>
@@ -2266,6 +2281,31 @@ function resize() {
   requestDraw();
 }
 
+function drawPrecip(w, h) {
+  if (!shouldDrawPrecip(state.weather)) return;
+  const t = precipIntensity(state.weather);
+  if (!(t > 0)) return;
+  const night = document.documentElement.classList.contains("night");
+  ctx.save();
+  ctx.globalAlpha = 0.08 + t * 0.18;
+  ctx.fillStyle = night ? "#6b8cac" : "#6a8eae";
+  ctx.fillRect(0, 0, w, h);
+  ctx.globalAlpha = 0.22 + t * 0.35;
+  ctx.strokeStyle = night ? "#9bb4c8" : "#4d6f88";
+  ctx.lineWidth = 1;
+  const step = Math.max(18, Math.round(36 - t * 14));
+  const len = 7 + t * 10;
+  for (let x = 8; x < w; x += step) {
+    for (let y = (x % (step * 2)) - 12; y < h; y += step) {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + 2, y + len);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
 function drawHorizon(w, h) {
   const pitch = state.camera.pitch || 0;
   if (pitch <= 0) return;
@@ -2344,6 +2384,7 @@ function draw() {
   ctx.fillStyle = stage;
   ctx.fillRect(0, 0, w, h);
   if (!mapBusy) drawHorizon(w, h);
+  drawPrecip(w, h);
   labelQueue.length = 0;
   if (!state.atlas) return;
   const selected = new Set(state.stop?.routes || []);
@@ -2358,9 +2399,10 @@ function draw() {
   const drawRouteSet = (onlyMetro, underground) => {
     for (const route of state.atlas.routes) {
       const metro = route.type === 1;
-      if (onlyMetro && !metro) continue;
-      if (!onlyMetro && metro && pitch > 0.15) continue;
-      const frequent = metro || /^80/.test(route.shortName);
+      const rail = route.type === 2;
+      if (onlyMetro && !metro && !rail) continue;
+      if (!onlyMetro && (metro || rail) && pitch > 0.15) continue;
+      const frequent = metro || rail || /^80/.test(route.shortName);
       if (!frequent && (mapBusy || !showLocalRoutes) && !selected.has(route.id)) continue;
       ctx.strokeStyle = underground ? (document.documentElement.classList.contains("night") ? "#6b7280" : "#4b5563") : lineStrokeColor(route);
       ctx.globalAlpha = underground
@@ -2370,7 +2412,7 @@ function draw() {
           : frequent
             ? 0.9
             : 0.35;
-      ctx.lineWidth = metro ? (underground ? 3.4 : 4.4) : /^80/.test(route.shortName) ? 2.8 : 1.4;
+      ctx.lineWidth = metro || rail ? (underground ? 3.4 : 4.4) : /^80/.test(route.shortName) ? 2.8 : 1.4;
       ctx.setLineDash(underground ? [5, 6] : []);
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
@@ -2392,6 +2434,7 @@ function draw() {
     }
   };
   if (!mapBusy && pitch > 0.15) drawRouteSet(true, true);
+  drawAccessWays(w, h);
   drawBuildings(w, h);
   drawRouteSet(false, false);
   const trip = currentTrip();
@@ -2412,17 +2455,11 @@ function draw() {
       });
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
-      if (leg.kind === "walk" || leg.kind === "bike") {
-        ctx.setLineDash([6, 7]);
-        ctx.strokeStyle = leg.kind === "bike" ? "#0b6bcb" : "#6a655e";
-        ctx.lineWidth = 3.2;
-        ctx.globalAlpha = 0.95;
-      } else {
-        ctx.setLineDash(tunnel ? [6, 5] : []);
-        ctx.strokeStyle = leg.color || "#0b6bcb";
-        ctx.lineWidth = tunnel ? 5 : 6;
-        ctx.globalAlpha = 0.96;
-      }
+      const stroke = tripStrokeStyle(leg);
+      ctx.setLineDash(stroke.dash);
+      ctx.strokeStyle = stroke.color;
+      ctx.lineWidth = stroke.width;
+      ctx.globalAlpha = 0.95;
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -2568,7 +2605,10 @@ function buildingQueryAllowed() {
 
 function scheduleBuildings() {
   clearTimeout(buildingTimer);
-  buildingTimer = setTimeout(loadBuildings, 280);
+  buildingTimer = setTimeout(() => {
+    loadBuildings();
+    loadAccessWays();
+  }, 280);
 }
 
 let weatherTimer = 0;
@@ -2585,19 +2625,46 @@ async function loadWeather() {
   const qlon = Math.round(c.lon * 50) / 50;
   const key = `${qlat},${qlon}`;
   if (key === weatherKey && state.weather) return;
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${qlat}&longitude=${qlon}&current=visibility,weather_code&hourly=visibility,weather_code&forecast_hours=6&timezone=America%2FMontreal`;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${qlat}&longitude=${qlon}&current=temperature_2m,precipitation,rain,snowfall,weather_code,wind_speed_10m,wind_direction_10m,visibility,uv_index&hourly=visibility,weather_code,precipitation,uv_index&forecast_hours=6&timezone=America%2FMontreal`;
+  const air = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${qlat}&longitude=${qlon}&current=european_aqi`;
   try {
-    const res = await fetch(url, { redirect: "error" });
+    const [res, airRes] = await Promise.all([
+      fetch(url, { redirect: "error" }),
+      fetch(air, { redirect: "error" }).catch(() => null),
+    ]);
     if (!res.ok) return;
     const parsed = weatherFromOpenMeteo(await readJsonResponseLimited(res, 256 * 1024));
     if (!parsed) return;
+    if (airRes && airRes.ok) {
+      try {
+        const aq = await readJsonResponseLimited(airRes, 64 * 1024);
+        const aqi = aq && aq.current && aq.current.european_aqi;
+        if (aqi != null) parsed.european_aqi = aqi;
+      } catch {
+        /* AQI optional */
+      }
+    }
     state.weather = parsed;
     weatherKey = key;
+    paintWx();
     scheduleBuildings();
     requestDraw();
   } catch {
     /* keep last weather or default vis */
   }
+}
+
+function paintWx() {
+  const el = document.getElementById("wx");
+  if (!el) return;
+  const line = formatShownLine(shownConditions(state.weather));
+  if (!line) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  el.hidden = false;
+  el.textContent = line;
 }
 
 async function loadBuildings() {
@@ -2649,6 +2716,58 @@ async function loadBuildings() {
       /* try next mirror */
     }
   }
+}
+
+let accessKey = "";
+let accessAbort = null;
+async function loadAccessWays() {
+  const c = motionCenter();
+  if (!Number.isFinite(c.lat) || !Number.isFinite(c.lon)) return;
+  const key = `${c.lat.toFixed(3)},${c.lon.toFixed(3)}`;
+  if (key === accessKey) return;
+  if (accessAbort) accessAbort.abort();
+  accessAbort = new AbortController();
+  const query = overpassAccessQuery(c, 700, 64);
+  if (!query) return;
+  const body = overpassPostBody(query);
+  for (const url of BUILDING_ENDPOINTS) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+        body,
+        signal: accessAbort.signal,
+        redirect: "error",
+      });
+      if (!res.ok) continue;
+      const parsed = parseOverpassWays(await readJsonResponseLimited(res, 2 * 1024 * 1024), 64);
+      state.ways = parsed;
+      accessKey = key;
+      requestDraw();
+      return;
+    } catch {
+      /* try next mirror */
+    }
+  }
+}
+
+function drawAccessWays(w, h) {
+  if (!state.ways || !state.ways.length || state.camera.zoom < 13.2) return;
+  const night = document.documentElement.classList.contains("night");
+  for (const way of state.ways) {
+    if (!way.line || way.line.length < 2) continue;
+    ctx.globalAlpha = night ? 0.28 : 0.22;
+    ctx.strokeStyle = way.kind === "cycle" ? "#0e7490" : way.kind === "foot" ? "#6f675c" : "#8b949e";
+    ctx.lineWidth = way.kind === "road" ? 1.5 : 1.1;
+    ctx.beginPath();
+    way.line.forEach(([lon, lat], i) => {
+      const [x, y] = worldToScreen(lon, lat, state.camera, w, h, 0);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 }
 
 const gpuLightState = { inflight: false, key: "", shades: null };

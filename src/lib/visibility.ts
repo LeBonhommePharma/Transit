@@ -15,6 +15,16 @@ export type WeatherInput = {
   weather?: unknown;
   weatherCode?: unknown;
   forecast?: unknown;
+  precipitation?: unknown;
+  rain?: unknown;
+  snowfall?: unknown;
+  uv_index?: unknown;
+  european_aqi?: unknown;
+  us_aqi?: unknown;
+  wind_speed_10m?: unknown;
+  wind_direction_10m?: unknown;
+  temperature_2m?: unknown;
+  hourly?: unknown;
 };
 
 export type BBox = { south: number; west: number; north: number; east: number };
@@ -190,10 +200,20 @@ export function weatherFromOpenMeteo(raw: unknown): WeatherInput | null {
   const forecastCode = codeList.length ? codeList[Math.min(1, codeList.length - 1)] : undefined;
   const visibilityM = current ? current.visibility : undefined;
   const weatherCode = current ? current.weather_code : undefined;
-  if (visibilityM == null && weatherCode == null && forecastVis == null && forecastCode == null) return null;
+  if (visibilityM == null && weatherCode == null && forecastVis == null && forecastCode == null && !current) return null;
   return {
     visibilityM,
     weatherCode,
+    precipitation: current ? current.precipitation : undefined,
+    rain: current ? current.rain : undefined,
+    snowfall: current ? current.snowfall : undefined,
+    uv_index: current ? current.uv_index : undefined,
+    european_aqi: current ? current.european_aqi : undefined,
+    us_aqi: current ? current.us_aqi : undefined,
+    wind_speed_10m: current ? current.wind_speed_10m : undefined,
+    wind_direction_10m: current ? current.wind_direction_10m : undefined,
+    temperature_2m: current ? current.temperature_2m : undefined,
+    hourly: hourly ?? undefined,
     forecast: { visibilityM: forecastVis, weatherCode: forecastCode },
   };
 }

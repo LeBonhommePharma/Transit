@@ -9,6 +9,8 @@ export const PROBE_AGREE_M = 130;
 export const PROBE_CITY_RADIUS_M = 45_000;
 const QC = { lon: -71.2082, lat: 46.8131 };
 const MTL = { lon: -73.5673, lat: 45.5017 };
+const SHB = { lon: -71.8908, lat: 45.4042 };
+const TRV = { lon: -72.5415, lat: 46.3432 };
 const BUS_M_PER_MIN = 360;
 
 function asFiniteNumber(value) {
@@ -418,6 +420,91 @@ export function lineStrokeColor(route) {
   const s = Math.min(0.72, Math.max(0.28, hsl.s + (popular ? 0.08 : -0.04)));
   const l = Math.min(0.58, Math.max(0.28, hsl.l + (popular ? -0.08 : 0.04) + ((num % 7) - 3) * 0.012));
   return hslToHex(hsl.h + hueShift, s, l);
+}
+
+export function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+export function roadMinutes(meters) {
+  if (!Number.isFinite(meters) || meters < 0) return 0;
+  return Math.max(1, Math.round(meters / 580));
+}
+
+export const CITY_MEMBERSHIP_M = 40000;
+
+export function cityForPoint(lon, lat, centers, maxMeters) {
+  const x = Number(lon);
+  const y = Number(lat);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || y < -90 || y > 90 || x < -180 || x > 180) return null;
+  const table = centers && typeof centers === "object" ? centers : { quebec: QC, montreal: MTL, sherbrooke: SHB, "trois-rivieres": TRV };
+  const radius = Number.isFinite(maxMeters) && maxMeters > 0 ? maxMeters : CITY_MEMBERSHIP_M;
+  let best = null;
+  let bestM = Infinity;
+  for (const [id, center] of Object.entries(table)) {
+    if (!center || !Number.isFinite(center.lon) || !Number.isFinite(center.lat)) continue;
+    const meters = haversineMeters({ lon: x, lat: y }, center);
+    if (!Number.isFinite(meters) || meters > radius) continue;
+    if (meters < bestM) {
+      bestM = meters;
+      best = id;
+    }
+  }
+  return best;
+}
+
+export function transitMixName(type) {
+  if (type === 1) return "métro";
+  if (type === 2) return "train";
+  return "bus";
+}
+
+export function mixLabel(legs) {
+  if (!Array.isArray(legs) || legs.length === 0) return "marche";
+  const parts = [];
+  for (const leg of legs) {
+    if (!leg || typeof leg !== "object") continue;
+    const name =
+      leg.kind === "walk"
+        ? "marche"
+        : leg.kind === "bike"
+          ? "vélo"
+          : leg.kind === "road"
+            ? "auto"
+            : leg.kind === "transit"
+              ? transitMixName(leg.type)
+              : "";
+    if (!name) continue;
+    if (parts[parts.length - 1] !== name) parts.push(name);
+  }
+  return parts.join(" + ") || "marche";
+}
+
+export function isAccessLeg(leg) {
+  return Boolean(leg && (leg.kind === "walk" || leg.kind === "bike" || leg.kind === "road"));
+}
+
+export function navStepLabel(leg) {
+  if (!leg || typeof leg !== "object") return "";
+  if (leg.kind === "walk") return leg.label || "À pied";
+  if (leg.kind === "bike") return leg.label || "Vélo";
+  if (leg.kind === "road") return leg.label || "Auto";
+  if (leg.kind === "transit") {
+    const name = typeof leg.shortName === "string" ? leg.shortName : "";
+    const head = typeof leg.headsign === "string" ? leg.headsign : "";
+    return [name, head].filter(Boolean).join(" · ");
+  }
+  return "";
+}
+
+export function tripStrokeStyle(leg) {
+  if (!leg || typeof leg !== "object") return { dash: [], color: "#6a655e", width: 3 };
+  if (leg.kind === "walk") return { dash: [6, 7], color: "#6a655e", width: 3.2 };
+  if (leg.kind === "bike") return { dash: [6, 7], color: "#0b6bcb", width: 3.2 };
+  if (leg.kind === "road") return { dash: [], color: "#5c6570", width: 4 };
+  const tunnel = leg.type === 1;
+  const color = typeof leg.color === "string" && leg.color ? leg.color : "#0b6bcb";
+  return { dash: tunnel ? [6, 5] : [], color, width: tunnel ? 5 : 6 };
 }
 
 export function rankByDoorToDoor(options) {

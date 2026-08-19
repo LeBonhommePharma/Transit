@@ -60,7 +60,7 @@ body {
 
 @media (prefers-reduced-transparency: reduce) {
   .glass {
-    background: #1a222b;
+    background: #eef3f6;
     backdrop-filter: none;
   }
 }

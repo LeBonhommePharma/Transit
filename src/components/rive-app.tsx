@@ -285,8 +285,8 @@ export function RiveApp() {
       />
 
       <div className="pointer-events-none absolute inset-0 z-[2]">
-        <div className="pointer-events-auto mx-auto flex w-max max-w-[calc(100%-24px)] flex-wrap justify-center pt-4">
-          <div className="glass flex max-w-full flex-wrap justify-center rounded-[22px] p-1 backdrop-blur-xl">
+        <div className="pointer-events-auto absolute left-[max(0.75rem,env(safe-area-inset-left))] right-[max(7.5rem,calc(env(safe-area-inset-right)+7.25rem))] top-[max(0.65rem,env(safe-area-inset-top))]">
+          <div className="glass flex max-w-full flex-nowrap justify-start overflow-x-auto rounded-[22px] p-1 backdrop-blur-xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {cities.map((item) => {
               const on = item.id === city;
               return (
@@ -308,10 +308,10 @@ export function RiveApp() {
                     setDepartures([]);
                     setPlanError("");
                   }}
-                  className={`rounded-full px-3 py-2 text-sm tracking-tight transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${
+                  className={`shrink-0 rounded-full px-3 py-2 text-sm tracking-tight min-h-11 transition-colors duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0e7490] ${
                     on
-                      ? "bg-[#1d1d1f] text-white"
-                      : "text-black/50 hover:text-black"
+                      ? "bg-[#0e7490] text-[#f0fdff]"
+                      : "text-[#3f4d5c] hover:bg-black/5 hover:text-[#1a2430]"
                   }`}
                 >
                   {item.label}
@@ -563,6 +563,10 @@ export function RiveApp() {
                           ) : leg.kind === "bike" ? (
                             <span key={i} className="inline-flex items-center gap-1 text-black/70">
                               {leg.system === "avelo" ? "àVélo" : "BIXI"} {leg.minutes} min
+                            </span>
+                          ) : leg.kind === "road" ? (
+                            <span key={i} className="inline-flex items-center gap-1 text-black/70">
+                              Auto {leg.minutes} min
                             </span>
                           ) : (
                             <span key={i} className="inline-flex items-center gap-2">
