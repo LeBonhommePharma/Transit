@@ -11,6 +11,8 @@ const QC = { lon: -71.2082, lat: 46.8131 };
 const MTL = { lon: -73.5673, lat: 45.5017 };
 const SHB = { lon: -71.8908, lat: 45.4042 };
 const TRV = { lon: -72.5415, lat: 46.3432 };
+// Fallback matches public/data/index.json cities[].center until setServedCenters().
+let probeCenters = [QC, MTL, SHB, TRV];
 const BUS_M_PER_MIN = 360;
 
 function asFiniteNumber(value) {
@@ -233,9 +235,38 @@ export function emptyProbeStore() {
   return { samples: [] };
 }
 
+function centersFrom(value) {
+  if (!value) return [];
+  const rows = Array.isArray(value)
+    ? value
+    : typeof value === "object" && Array.isArray(value.cities)
+      ? value.cities
+      : typeof value === "object"
+        ? Object.values(value)
+        : [];
+  const out = [];
+  for (const item of rows) {
+    if (!item) continue;
+    const pair = Array.isArray(item) ? item : Array.isArray(item.center) ? item.center : [item.lon, item.lat];
+    const lon = Number(pair[0]);
+    const lat = Number(pair[1]);
+    if (Number.isFinite(lon) && Number.isFinite(lat)) out.push({ lon, lat });
+  }
+  return out;
+}
+
+export function servedCenters() {
+  return probeCenters.map((center) => ({ lon: center.lon, lat: center.lat }));
+}
+
+export function setServedCenters(centers) {
+  const next = centersFrom(centers);
+  if (next.length) probeCenters = next;
+}
+
 export function inServedRegion(lon, lat) {
   const here = { lon, lat };
-  return haversineMeters(here, QC) <= PROBE_CITY_RADIUS_M || haversineMeters(here, MTL) <= PROBE_CITY_RADIUS_M;
+  return probeCenters.some((center) => haversineMeters(here, center) <= PROBE_CITY_RADIUS_M);
 }
 
 export function validateProbe(raw, now) {

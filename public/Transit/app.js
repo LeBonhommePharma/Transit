@@ -28,6 +28,7 @@ import {
   cityForPoint,
   escapeHtml,
   tripStrokeStyle,
+  setServedCenters,
 } from "./rive-kit.js";
 import {
   BUILDING_ENDPOINTS,
@@ -1202,6 +1203,7 @@ async function loadCityIndex() {
     state.cityCenters = Object.fromEntries(
       cities.map((item) => [item.city, { lon: Number(item.center?.[0]), lat: Number(item.center?.[1]) }]).filter(([, center]) => Number.isFinite(center.lon) && Number.isFinite(center.lat)),
     );
+    setServedCenters(state.cityCenters);
     const citiesBox = document.querySelector(".cities");
     if (citiesBox) {
       citiesBox.innerHTML = cities

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { haversineMeters } from "./geo";
 import type { LineDue } from "./lines";
 import { formatClock } from "./time";
@@ -33,8 +35,32 @@ export const PROBE_MAX_SAMPLES = 400;
 export const PROBE_MAX_SHAPE_POINTS = 5_000;
 export const PROBE_MAX_ROUTE_ID_LENGTH = 128;
 
-const QC = { lon: -71.2082, lat: 46.8131 };
-const MTL = { lon: -73.5673, lat: 45.5017 };
+type LonLat = { lon: number; lat: number };
+
+function centersFromIndex(raw: unknown): LonLat[] {
+  if (!raw || typeof raw !== "object") return [];
+  const cities = (raw as { cities?: unknown }).cities;
+  if (!Array.isArray(cities)) return [];
+  const out: LonLat[] = [];
+  for (const item of cities) {
+    if (!item || typeof item !== "object") continue;
+    const center = (item as { center?: unknown }).center;
+    if (!Array.isArray(center) || center.length < 2) continue;
+    const lon = Number(center[0]);
+    const lat = Number(center[1]);
+    if (Number.isFinite(lon) && Number.isFinite(lat)) out.push({ lon, lat });
+  }
+  return out;
+}
+
+const INDEX_CENTERS: LonLat[] = (() => {
+  try {
+    return centersFromIndex(JSON.parse(readFileSync(join(process.cwd(), "public", "data", "index.json"), "utf8")));
+  } catch {
+    return [];
+  }
+})();
+
 const BUS_M_PER_MIN = 360;
 
 function finiteCoord(value: unknown, maxAbs: number): number | null {
@@ -47,9 +73,14 @@ export function emptyProbeStore(): ProbeStore {
   return { samples: [] };
 }
 
+export function servedCenters(): LonLat[] {
+  return INDEX_CENTERS.map((center) => ({ lon: center.lon, lat: center.lat }));
+}
+
 export function inServedRegion(lon: number, lat: number): boolean {
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return false;
   const here = { lon, lat };
-  return haversineMeters(here, QC) <= PROBE_CITY_RADIUS_M || haversineMeters(here, MTL) <= PROBE_CITY_RADIUS_M;
+  return INDEX_CENTERS.some((center) => haversineMeters(here, center) <= PROBE_CITY_RADIUS_M);
 }
 
 /** Drop identity-bearing fields and non-finite / out-of-city junk. */
