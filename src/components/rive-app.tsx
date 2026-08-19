@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
@@ -80,9 +80,12 @@ export function RiveApp() {
   const [selectedStop, setSelectedStop] = useState<AtlasStop | null>(null);
   const [departures, setDepartures] = useState<Departure[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  const [departuresBusy, setDeparturesBusy] = useState(false);
   const [gpuLabel] = useState(() =>
     typeof navigator !== "undefined" && "gpu" in navigator ? "WebGPU prêt" : "WebGL",
   );
+  const departuresRun = useRef<AbortController | null>(null);
+  const planRun = useRef(0);
 
   const tr = (id: MessageId) => t(id, locale);
   const chips = useMemo(
@@ -140,14 +143,21 @@ export function RiveApp() {
     };
   }, [city]);
 
+  const typed = activeField === "from" ? fromQuery : toQuery;
+  const deferredQuery = useDeferredValue(typed);
   const hits = useMemo(() => {
     if (!atlas) return [];
-    const q = activeField === "from" ? fromQuery : toQuery;
-    return searchAtlas(atlas, q, 7, undefined, { pois });
-  }, [atlas, activeField, fromQuery, toQuery, pois]);
+    return searchAtlas(atlas, deferredQuery, 7, undefined, { pois });
+  }, [atlas, deferredQuery, pois]);
 
-  const selectedRoute = atlas?.routes.find((r) => r.id === selectedRouteId) ?? null;
-  const activeItinerary = itineraries.find((item) => item.id === chosen) ?? itineraries[0] ?? null;
+  const selectedRoute = useMemo(
+    () => atlas?.routes.find((r) => r.id === selectedRouteId) ?? null,
+    [atlas, selectedRouteId],
+  );
+  const activeItinerary = useMemo(
+    () => itineraries.find((item) => item.id === chosen) ?? itineraries[0] ?? null,
+    [itineraries, chosen],
+  );
 
   function pickStopAs(field: Field, stop: AtlasStop) {
     const place: Place = {
@@ -169,13 +179,25 @@ export function RiveApp() {
     setSelectedStop(stop);
     setSelectedRouteId(null);
     pickStopAs(activeField, stop);
-    const res = await fetch(`/api/departures?city=${encodeURIComponent(city)}&stop=${encodeURIComponent(stop.id)}`);
-    if (!res.ok) {
-      setDepartures([]);
-      return;
+    departuresRun.current?.abort();
+    const run = new AbortController();
+    departuresRun.current = run;
+    setDepartures([]);
+    setDeparturesBusy(true);
+    try {
+      const res = await fetch(
+        `/api/departures?city=${encodeURIComponent(city)}&stop=${encodeURIComponent(stop.id)}`,
+        { signal: run.signal },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await readJsonResponse<{ departures: Departure[] }>(res, 512 * 1024);
+      if (departuresRun.current !== run) return;
+      setDepartures(data.departures);
+    } catch {
+      if (departuresRun.current === run) setDepartures([]);
+    } finally {
+      if (departuresRun.current === run) setDeparturesBusy(false);
     }
-    const data = await readJsonResponse<{ departures: Departure[] }>(res, 512 * 1024);
-    setDepartures(data.departures);
   }
 
   function pickPoiAs(field: Field, poi: Poi) {
@@ -194,6 +216,7 @@ export function RiveApp() {
 
   async function plan(nextFrom = from, nextTo = to) {
     if (!nextFrom || !nextTo) return;
+    const run = ++planRun.current;
     setPlanning(true);
     setPlanError("");
     try {
@@ -203,6 +226,7 @@ export function RiveApp() {
         body: JSON.stringify({ city, from: nextFrom, to: nextTo }),
       });
       const data = await readJsonResponse<{ itineraries?: Itinerary[]; error?: string }>(res, 4 * 1024 * 1024);
+      if (planRun.current !== run) return;
       if (!res.ok) throw new Error(data.error || "Planification impossible.");
       const list = data.itineraries ?? [];
       setItineraries(list);
@@ -211,9 +235,10 @@ export function RiveApp() {
         setPlanError("Aucun trajet trouvé sur les horaires du jour.");
       }
     } catch (err) {
+      if (planRun.current !== run) return;
       setPlanError(err instanceof Error ? err.message : "Planification impossible.");
     } finally {
-      setPlanning(false);
+      if (planRun.current === run) setPlanning(false);
     }
   }
 
@@ -338,14 +363,14 @@ export function RiveApp() {
               <button
                 type="button"
                 onClick={locate}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/8 text-ink/80"
+                className="flex h-11 w-11 items-center justify-center rounded-[10px] bg-well text-ink/70 transition-colors duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-well-hi hover:text-ink"
                 aria-label="Utiliser ma position"
               >
                 <Crosshair size={16} />
               </button>
             </div>
-            <label className="mb-2 flex items-center gap-2 rounded-2xl bg-black/25 px-3 py-2.5">
-              <PersonSimpleWalk size={16} className="text-[#7dcec3]" />
+            <label className="mb-2 flex items-center gap-2 rounded-[10px] border border-hairline bg-well px-3 py-2.5 transition-colors focus-within:border-sodium">
+              <PersonSimpleWalk size={16} className="text-sodium/80" />
               <span className="sr-only">Départ</span>
               <input
                 value={fromQuery}
@@ -356,10 +381,10 @@ export function RiveApp() {
                 }}
                 onFocus={() => setActiveField("from")}
                 placeholder="De"
-                className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-black/35"
+                className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink/45"
               />
             </label>
-            <label className="flex items-center gap-2 rounded-2xl bg-black/25 px-3 py-2.5">
+            <label className="flex items-center gap-2 rounded-[10px] border border-hairline bg-well px-3 py-2.5 transition-colors focus-within:border-sodium">
               <MapPin size={16} className="text-sodium" />
               <span className="sr-only">Destination</span>
               <input
@@ -371,12 +396,12 @@ export function RiveApp() {
                 }}
                 onFocus={() => setActiveField("to")}
                 placeholder="Vers"
-                className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-black/35"
+                className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink/45"
               />
               <button
                 type="submit"
                 disabled={!from || !to || planning}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-paper text-ink disabled:opacity-40"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] bg-sodium text-[#f0fdfa] transition-opacity disabled:opacity-30"
                 aria-label={tr("searchTrip")}
               >
                 <MagnifyingGlass size={15} weight="bold" />
@@ -384,7 +409,7 @@ export function RiveApp() {
             </label>
 
             {hits.length > 0 && (
-              <ul className="mt-2 divide-y divide-white/8">
+              <ul className="mt-2 divide-y divide-hairline">
                 {hits.map((hit) =>
                   hit.kind === "stop" ? (
                     <li key={`s-${hit.stop.id}`}>
@@ -404,7 +429,7 @@ export function RiveApp() {
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm">{hit.stop.name}</span>
                           {hit.stop.agencyId && (
-                            <span className="block text-[11px] text-black/40">{hit.stop.agencyId}</span>
+                            <span className="block text-[11px] text-ink/45">{hit.stop.agencyId}</span>
                           )}
                         </span>
                       </button>
@@ -419,7 +444,7 @@ export function RiveApp() {
                         <MapPin size={16} className="text-[#d97706]" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm">{hit.poi.name}</span>
-                          <span className="block text-[11px] text-black/40">
+                          <span className="block text-[11px] text-ink/45">
                             {hit.poi.category || "Point important"} · popularité {Math.round(hit.poi.popularity)}
                           </span>
                         </span>
@@ -438,7 +463,7 @@ export function RiveApp() {
                             {hit.route.longName || hit.route.shortName}
                           </span>
                           {hit.route.agencyId && (
-                            <span className="block text-[11px] text-black/40">{hit.route.agencyId}</span>
+                            <span className="block text-[11px] text-ink/45">{hit.route.agencyId}</span>
                           )}
                         </span>
                       </button>
@@ -455,7 +480,7 @@ export function RiveApp() {
                     key={hint}
                     type="button"
                     onClick={() => void applyHint(hint, index === 0 ? "from" : "to")}
-                    className="rounded-full bg-white/8 px-3 py-1 text-xs text-ink/75"
+                    className="min-h-9 rounded-full bg-well px-3 py-1 text-xs text-ink/75 transition-colors hover:bg-well-hi hover:text-ink"
                   >
                     {hint}
                   </button>
@@ -479,20 +504,21 @@ export function RiveApp() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-medium tracking-tight">{selectedStop.name}</h2>
-                    <p className="mt-1 text-sm text-black/55">{tr("remoteHint")}</p>
+                    <p className="mt-1 text-sm text-muted">{tr("remoteHint")}</p>
                   </div>
                   <button
                     type="button"
                     onClick={() => setSelectedStop(null)}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-white/8"
+                    className="flex h-11 w-11 items-center justify-center rounded-[10px] bg-well text-ink/70 transition-colors hover:bg-well-hi hover:text-ink"
                     aria-label={tr("close")}
                   >
                     <X size={14} />
                   </button>
                 </div>
                 <ul className="mt-4 space-y-3">
-                  {departures.length === 0 && (
-                    <li className="text-sm text-black/55">{tr("noPassages")}</li>
+                  {departuresBusy && <li className="text-sm text-muted">Lecture des horaires…</li>}
+                  {!departuresBusy && departures.length === 0 && (
+                    <li className="text-sm text-muted">{tr("noPassages")}</li>
                   )}
                   {departures.map((row) => (
                     <li key={`${row.routeId}-${row.headsign}`} className="flex items-center gap-3">
@@ -504,7 +530,7 @@ export function RiveApp() {
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm">{row.headsign}</p>
-                        <p className="font-mono text-[11px] text-black/40">
+                        <p className="font-mono text-[11px] text-ink/45">
                           {(row.times && row.times.length > 0 ? row.times : [row.depart])
                             .slice(0, 5)
                             .map((t) => formatClock(t))
@@ -535,7 +561,7 @@ export function RiveApp() {
                 className="glass rounded-[12px] p-5"
               >
                 {planning && (
-                  <p className="text-sm text-black/60">Lecture des horaires…</p>
+                  <p className="text-sm text-muted">Lecture des horaires…</p>
                 )}
                 {planError && <p className="text-sm text-ink">{planError}</p>}
                 {itineraries.map((item) => {
@@ -546,15 +572,15 @@ export function RiveApp() {
                       key={item.id}
                       type="button"
                       onClick={() => setChosen(item.id)}
-                      className={`mb-3 w-full rounded-[22px] p-4 text-left last:mb-0 ${
-                        on ? "bg-white/10" : "bg-transparent"
+                      className={`mb-3 w-full rounded-[10px] p-4 text-left transition-colors last:mb-0 ${
+                        on ? "bg-well ring-1 ring-sodium/40" : "bg-transparent hover:bg-well"
                       }`}
                     >
                       <div className="flex items-end justify-between">
                         <p className="text-3xl font-medium tracking-tight">
                           {item.minutes} min
                         </p>
-                        <p className="text-xs text-black/50">
+                        <p className="text-xs text-ink/55">
                           {item.transfers === 0
                             ? tr("direct")
                             : `${item.transfers} ${tr("transfer")}`}
@@ -563,28 +589,28 @@ export function RiveApp() {
                       <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
                         {item.legs.map((leg, i) =>
                           leg.kind === "walk" ? (
-                            <span key={i} className="inline-flex items-center gap-1 text-black/70">
+                            <span key={i} className="inline-flex items-center gap-1 text-ink/75">
                               <PersonSimpleWalk size={14} />
                               {leg.minutes} min
                             </span>
                           ) : leg.kind === "bike" ? (
-                            <span key={i} className="inline-flex items-center gap-1 text-black/70">
+                            <span key={i} className="inline-flex items-center gap-1 text-ink/75">
                               {leg.system === "avelo" ? "àVélo" : "BIXI"} {leg.minutes} min
                             </span>
                           ) : leg.kind === "road" ? (
-                            <span key={i} className="inline-flex items-center gap-1 text-black/70">
+                            <span key={i} className="inline-flex items-center gap-1 text-ink/75">
                               Auto {leg.minutes} min
                             </span>
                           ) : (
                             <span key={i} className="inline-flex items-center gap-2">
-                              {i > 0 && <ArrowRight size={12} className="text-black/35" />}
+                              {i > 0 && <ArrowRight size={12} className="text-ink/45" />}
                               <span
                                 className="rounded-full px-2 py-0.5 text-xs font-semibold"
                                 style={{ background: leg.color, color: leg.textColor }}
                               >
                                 {leg.shortName}
                               </span>
-                              <span className="text-black/70">
+                              <span className="text-ink/75">
                                 {leg.headsign}
                                 {leg.agencyId ? ` · ${leg.agencyId}` : ""}
                               </span>
@@ -593,7 +619,7 @@ export function RiveApp() {
                         )}
                       </div>
                       {transit && on && (
-                        <p className="mt-3 font-mono text-[11px] text-black/40">
+                        <p className="mt-3 font-mono text-[11px] text-ink/45">
                           {formatClock(transit.depart)} → {formatClock(transit.arrive)}
                           {atlas ? ` · ${atlas.meta.agencyId}` : ""}
                         </p>
@@ -611,15 +637,15 @@ export function RiveApp() {
                 <RouteBadge route={selectedRoute} />
                 <div>
                   <h2 className="text-lg font-medium">{selectedRoute.shortName}</h2>
-                  <p className="text-sm text-black/60">{selectedRoute.longName}</p>
+                  <p className="text-sm text-muted">{selectedRoute.longName}</p>
                 </div>
               </div>
             </section>
           )}
         </div>
 
-        <div className="pointer-events-none absolute bottom-4 right-4 hidden items-end gap-3 text-[10px] text-black/45 md:flex">
-          <span className="rounded-full bg-black/35 px-2 py-1">{gpuLabel}</span>
+        <div className="pointer-events-none absolute bottom-4 right-4 hidden items-end gap-3 text-[10px] text-ink/50 md:flex">
+          <span className="rounded-full bg-well px-2 py-1 text-ink/70">{gpuLabel}</span>
           {atlas && (
             <p className="max-w-xs text-right leading-relaxed">
               {atlas.meta.attribution} Mise à jour {atlas.meta.start}.
@@ -629,12 +655,12 @@ export function RiveApp() {
       </div>
 
       {!atlas && !loadError && (
-        <div className="absolute inset-0 z-[3] flex items-center justify-center bg-ink">
-          <p className="text-sm text-black/55">{tr("loading")}</p>
+        <div className="absolute inset-0 z-[3] flex items-center justify-center bg-paper">
+          <p className="text-sm text-muted">{tr("loading")}</p>
         </div>
       )}
       {loadError && (
-        <div className="absolute inset-0 z-[3] flex items-center justify-center bg-ink p-6 text-center">
+        <div className="absolute inset-0 z-[3] flex items-center justify-center bg-paper p-6 text-center">
           <p className="max-w-sm text-sm text-ink">{loadError}</p>
         </div>
       )}
