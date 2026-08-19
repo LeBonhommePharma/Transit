@@ -4,6 +4,10 @@ export type Poi = {
   lon: number;
   lat: number;
   popularity: number;
+  city?: string;
+  category?: string;
+  aliases?: string[];
+  importance?: number;
 };
 
 /** Higher popularity ranks first. Hard budget N. No giant local store. */

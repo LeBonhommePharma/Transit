@@ -29,6 +29,9 @@ export const PROBE_MIN_AGREE = 3;
 export const PROBE_SNAP_M = 90;
 export const PROBE_AGREE_M = 130;
 export const PROBE_CITY_RADIUS_M = 45_000;
+export const PROBE_MAX_SAMPLES = 400;
+export const PROBE_MAX_SHAPE_POINTS = 5_000;
+export const PROBE_MAX_ROUTE_ID_LENGTH = 128;
 
 const QC = { lon: -71.2082, lat: 46.8131 };
 const MTL = { lon: -73.5673, lat: 45.5017 };
@@ -60,8 +63,11 @@ export function validateProbe(raw: unknown, now?: number): ProbeSample | null {
   if (lon == null || lat == null || !Number.isFinite(at)) return null;
   if (!inServedRegion(lon, lat)) return null;
   const clock = typeof now === "number" && Number.isFinite(now) ? now : at;
-  if (clock - at > PROBE_MAX_AGE_MS) return null;
-  const routeId = typeof row.routeId === "string" && row.routeId ? row.routeId : undefined;
+  if (clock - at > PROBE_MAX_AGE_MS || at - clock > 30_000) return null;
+  const routeId =
+    typeof row.routeId === "string" && row.routeId.length <= PROBE_MAX_ROUTE_ID_LENGTH && row.routeId
+      ? row.routeId
+      : undefined;
   const heading = finiteCoord(row.heading, 10_000);
   return {
     lon,
@@ -81,8 +87,9 @@ export function ingestProbe(store: ProbeStore, raw: unknown, now?: number): Prob
   const sample = validateProbe(raw, now);
   if (!sample) return store;
   const clock = typeof now === "number" && Number.isFinite(now) ? now : sample.at;
-  const next = expireProbes({ samples: [...store.samples, sample] }, clock);
-  if (next.samples.length > 400) next.samples = next.samples.slice(-400);
+  const previous = Array.isArray(store.samples) ? store.samples.slice(-PROBE_MAX_SAMPLES) : [];
+  const next = expireProbes({ samples: [...previous, sample] }, clock);
+  if (next.samples.length > PROBE_MAX_SAMPLES) next.samples = next.samples.slice(-PROBE_MAX_SAMPLES);
   return next;
 }
 
@@ -90,8 +97,9 @@ export function snapToShape(
   point: { lon: number; lat: number },
   shape: [number, number][],
 ): { lon: number; lat: number; index: number; meters: number; alongMeters: number } | null {
-  if (!shape || shape.length < 2) return null;
+  if (!shape || shape.length < 2 || shape.length > PROBE_MAX_SHAPE_POINTS) return null;
   if (!Number.isFinite(point.lon) || !Number.isFinite(point.lat)) return null;
+  if (!shape.every(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat))) return null;
   let bestI = 0;
   let bestD = Infinity;
   let best: [number, number] = shape[0];
@@ -140,7 +148,15 @@ export function fuseRouteProbes(input: {
   expectedAlongMeters?: number;
 }): FusedVehicle | null {
   const { store, routeId, shape, now, officialDepart } = input;
-  if (!routeId || !shape || shape.length < 2 || !Number.isFinite(now) || !Number.isFinite(officialDepart)) {
+  if (
+    !routeId ||
+    routeId.length > PROBE_MAX_ROUTE_ID_LENGTH ||
+    !shape ||
+    shape.length < 2 ||
+    shape.length > PROBE_MAX_SHAPE_POINTS ||
+    !Number.isFinite(now) ||
+    !Number.isFinite(officialDepart)
+  ) {
     return null;
   }
   const live = expireProbes(store, now).samples.filter((s) => !s.routeId || s.routeId === routeId);

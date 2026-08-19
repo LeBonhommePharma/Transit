@@ -84,31 +84,34 @@ export function formatMeters(meters: number): string {
 }
 
 export function decodePolyline(encoded: string, precision = 5): [number, number][] {
-  if (!encoded) return [];
+  if (typeof encoded !== "string" || !encoded || encoded.length > 200_000) return [];
   const factor = 10 ** precision;
   const coords: [number, number][] = [];
   let index = 0;
   let lat = 0;
   let lng = 0;
-  while (index < encoded.length) {
+  const nextDelta = (): number | null => {
     let result = 0;
     let shift = 0;
-    let b: number;
-    do {
-      b = encoded.charCodeAt(index++) - 63;
+    for (let count = 0; count < 7; count++) {
+      if (index >= encoded.length) return null;
+      const b = encoded.charCodeAt(index++) - 63;
+      if (b < 0 || b > 63) return null;
       result |= (b & 0x1f) << shift;
       shift += 5;
-    } while (b >= 0x20);
-    lat += result & 1 ? ~(result >> 1) : result >> 1;
-    result = 0;
-    shift = 0;
-    do {
-      b = encoded.charCodeAt(index++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    lng += result & 1 ? ~(result >> 1) : result >> 1;
-    coords.push([lng / factor, lat / factor]);
+      if (b < 0x20) return result & 1 ? ~(result >> 1) : result >> 1;
+    }
+    return null;
+  };
+  while (index < encoded.length && coords.length < 10_000) {
+    const latDelta = nextDelta();
+    const lngDelta = nextDelta();
+    if (latDelta == null || lngDelta == null) break;
+    lat += latDelta;
+    lng += lngDelta;
+    const point: [number, number] = [lng / factor, lat / factor];
+    if (!Number.isFinite(point[0]) || !Number.isFinite(point[1]) || point[0] < -180 || point[0] > 180 || point[1] < -90 || point[1] > 90) return [];
+    coords.push(point);
   }
   return coords;
 }

@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { GeoJSONSource, Map as MapLibreMap, MapGeoJSONFeature } from "maplibre-gl";
-import type { Atlas, AtlasStop, CityId, Itinerary } from "@/lib/atlas/types";
+import type { Atlas, AtlasStop, CityId, Itinerary, Place } from "@/lib/atlas/types";
 import { decodePolyline, lineSlice } from "@/lib/geo";
 
 const STYLE = "https://tiles.openfreemap.org/styles/positron";
@@ -81,6 +81,8 @@ function itineraryCollection(itinerary: Itinerary | null): GeoJSON.FeatureCollec
   const features: GeoJSON.Feature[] = [];
   if (!itinerary) return { type: "FeatureCollection", features };
   itinerary.legs.forEach((leg, index) => {
+    const from = mapPoint(leg.from);
+    const to = mapPoint(leg.to);
     if (leg.kind === "walk" || leg.kind === "bike") {
       features.push({
         type: "Feature",
@@ -88,8 +90,8 @@ function itineraryCollection(itinerary: Itinerary | null): GeoJSON.FeatureCollec
         geometry: {
           type: "LineString",
           coordinates: [
-            [leg.from.lon, leg.from.lat],
-            [leg.to.lon, leg.to.lat],
+            from,
+            to,
           ],
         },
       });
@@ -97,9 +99,9 @@ function itineraryCollection(itinerary: Itinerary | null): GeoJSON.FeatureCollec
     }
     const full = decodePolyline(leg.line);
     const coords =
-      full.length > 1 ? lineSlice(full, leg.from, leg.to) : [
-        [leg.from.lon, leg.from.lat] as [number, number],
-        [leg.to.lon, leg.to.lat] as [number, number],
+      full.length > 1 ? lineSlice(full, { lon: from[0], lat: from[1] }, { lon: to[0], lat: to[1] }) : [
+        from,
+        to,
       ];
     features.push({
       type: "Feature",
@@ -108,6 +110,12 @@ function itineraryCollection(itinerary: Itinerary | null): GeoJSON.FeatureCollec
     });
   });
   return { type: "FeatureCollection", features };
+}
+
+function mapPoint(point: Place): [number, number] {
+  if (point.stopId) return [point.lon, point.lat];
+  // Keep exact GPS-origin coordinates out of third-party tile/viewport requests.
+  return [Math.round(point.lon * 100) / 100, Math.round(point.lat * 100) / 100];
 }
 
 export function MapView({
@@ -328,10 +336,7 @@ export function MapView({
     const source = map?.getSource("rive-trip") as GeoJSONSource | undefined;
     source?.setData(itineraryCollection(itinerary ?? null));
     if (itinerary && map) {
-      const coords = itinerary.legs.flatMap((leg) => [
-        [leg.from.lon, leg.from.lat] as [number, number],
-        [leg.to.lon, leg.to.lat] as [number, number],
-      ]);
+      const coords = itinerary.legs.flatMap((leg) => [mapPoint(leg.from), mapPoint(leg.to)]);
       if (coords.length) {
         const bounds = coords.reduce(
           (b, c) => b.extend(c),

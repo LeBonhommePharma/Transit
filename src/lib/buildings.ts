@@ -7,6 +7,7 @@ export type BuildingFootprint = {
 
 export const BUILDING_ZOOM = 12.6;
 export const BUILDING_CAP = 280;
+const MAX_BUILDING_RING_POINTS = 2_000;
 
 export function buildingHeightMeters(tags: unknown): number {
   if (!tags || typeof tags !== "object") return 10;
@@ -31,44 +32,45 @@ export function parseOverpassBuildings(raw: unknown, cap = BUILDING_CAP): Buildi
   if (!raw || typeof raw !== "object") return [];
   const root = raw as Record<string, unknown>;
   const out: BuildingFootprint[] = [];
-  const elements = Array.isArray(root.elements) ? root.elements : [];
+  const limit = Number.isFinite(cap) ? Math.min(BUILDING_CAP, Math.max(0, Math.floor(cap))) : BUILDING_CAP;
+  const elements = Array.isArray(root.elements) ? root.elements.slice(0, limit * 2) : [];
   for (const item of elements) {
     if (!item || typeof item !== "object") continue;
     const el = item as Record<string, unknown>;
     const geom = Array.isArray(el.geometry) ? el.geometry : [];
     const ring: [number, number][] = [];
-    for (const pt of geom) {
+    for (const pt of geom.slice(0, MAX_BUILDING_RING_POINTS)) {
       if (!pt || typeof pt !== "object") continue;
       const p = pt as { lon?: unknown; lat?: unknown };
       const lon = Number(p.lon);
       const lat = Number(p.lat);
-      if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+      if (!Number.isFinite(lon) || !Number.isFinite(lat) || lon < -180 || lon > 180 || lat < -90 || lat > 90) continue;
       ring.push([lon, lat]);
     }
     const closed = closedRing(ring);
     if (closed.length < 4) continue;
     out.push({ ring: closed, heightM: buildingHeightMeters(el.tags) });
-    if (out.length >= cap) break;
+    if (out.length >= limit) break;
   }
   if (out.length === 0 && root.type === "FeatureCollection" && Array.isArray(root.features)) {
-    for (const feat of root.features) {
+    for (const feat of root.features.slice(0, limit * 2)) {
       if (!feat || typeof feat !== "object") continue;
       const f = feat as { geometry?: { type?: string; coordinates?: unknown }; properties?: unknown };
       const coords = f.geometry && f.geometry.type === "Polygon" ? f.geometry.coordinates : null;
       const outer = Array.isArray(coords) ? coords[0] : null;
       if (!Array.isArray(outer)) continue;
       const ring: [number, number][] = [];
-      for (const pt of outer) {
+      for (const pt of outer.slice(0, MAX_BUILDING_RING_POINTS)) {
         if (!Array.isArray(pt) || pt.length < 2) continue;
         const lon = Number(pt[0]);
         const lat = Number(pt[1]);
-        if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+        if (!Number.isFinite(lon) || !Number.isFinite(lat) || lon < -180 || lon > 180 || lat < -90 || lat > 90) continue;
         ring.push([lon, lat]);
       }
       const closed = closedRing(ring);
       if (closed.length < 4) continue;
       out.push({ ring: closed, heightM: buildingHeightMeters(f.properties) });
-      if (out.length >= cap) break;
+      if (out.length >= limit) break;
     }
   }
   return out;
@@ -90,18 +92,36 @@ export function wallQuads(
   dx: number,
   dy: number,
 ): Array<[[number, number], [number, number], [number, number], [number, number]]> {
-  const quads = [];
+  const quads: Array<[[number, number], [number, number], [number, number], [number, number]]> = [];
   if (!ring || ring.length < 2) return quads;
-  for (let i = 0; i < ring.length - 1; i++) {
+  for (let i = 0; i < Math.min(ring.length - 1, MAX_BUILDING_RING_POINTS); i++) {
     const a = ring[i];
     const b = ring[i + 1];
     if (!a || !b) continue;
-    quads.push([a, b, [b[0] + dx, b[1] + dy], [a[0] + dx, a[1] + dy]]);
+    const bTop: [number, number] = [b[0] + dx, b[1] + dy];
+    const aTop: [number, number] = [a[0] + dx, a[1] + dy];
+    quads.push([a, b, bTop, aTop]);
   }
   return quads;
 }
 
 export function overpassQuery(bbox: { south: number; west: number; north: number; east: number }): string {
+  if (
+    !Number.isFinite(bbox.south) ||
+    !Number.isFinite(bbox.west) ||
+    !Number.isFinite(bbox.north) ||
+    !Number.isFinite(bbox.east) ||
+    bbox.south < -90 ||
+    bbox.north > 90 ||
+    bbox.west < -180 ||
+    bbox.east > 180 ||
+    bbox.south >= bbox.north ||
+    bbox.west >= bbox.east ||
+    bbox.north - bbox.south > 1 ||
+    bbox.east - bbox.west > 1
+  ) {
+    return "";
+  }
   const s = [bbox.south, bbox.west, bbox.north, bbox.east]
     .map((n) => (Number.isFinite(n) ? n.toFixed(5) : ""))
     .join(",");

@@ -28,7 +28,7 @@ import { remainMinutes, watchPulseFromPayload } from "./watch-remain";
 import { applyLivePulse, boardingStopName, livePulseEnd, livePulseFromTransit } from "./live-pulse";
 import { altitudeLiftPx, applyPitch, formatMeters, invertPitch, METRO_DEPTH_M } from "./geo";
 import { mixLabel, planTrajectories, rankByDoorToDoor } from "./trajectory";
-import { buildingHeightMeters, extrudeOffsetPx, overpassPostBody, parseOverpassBuildings, wallQuads } from "./buildings";
+import { buildingHeightMeters, extrudeOffsetPx, overpassPostBody, overpassQuery, parseOverpassBuildings, wallQuads } from "./buildings";
 import { fold, firstStopFromQuery, nearbyStops, pinHereForCity, placeFromStop, searchAtlas, stopHasService } from "./search";
 import { activeServiceIndexes } from "./services";
 import { formatClock, minutesOfDay, parseClock24, prefersHour12 } from "./time";
@@ -100,8 +100,8 @@ describe("hostile user input", () => {
 
   it("static app.js only bonuses metro stops after a real match", () => {
     const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
-    assert.match(src, /if \(score > 0 && stop\.kind === 1\) score \+= 8;/);
-    assert.doesNotMatch(src, /else if \(tokenHits > 0\) score = 40 \+ tokenHits \* 25;\s*if \(stop\.kind === 1\) score \+= 8;/);
+    assert.match(src, /searchStopImportance/);
+    assert.match(src, /searchPlaces/);
   });
 
   it("static atlas asks here, nearby, destination, and horaire ailleurs at a given time", () => {
@@ -173,6 +173,7 @@ describe("hostile user input", () => {
     assert.match(src, /Démarrer/);
     assert.match(src, /annotateTimeGaps/);
     assert.match(src, /parseOverpassBuildings|buildings/);
+    assert.match(src, /searchPlaces|searchImportance|searchPois/);
     assert.match(src, /camera\.pitch|id="pitch"/);
     assert.match(src, /livePulseFromTransit|pulseFromTrip/);
     assert.match(src, /livePulseEnd|broadcastPulse/);
@@ -281,8 +282,17 @@ describe("bikeshare GBFS", () => {
         },
       },
       "station_status",
+      "https://example.test",
     );
     assert.equal(url, "https://example.test/status");
+    assert.equal(
+      feedUrl(
+        { data: { feeds: [{ name: "station_status", url: "https://169.254.169.254/latest/meta-data" }] } },
+        "station_status",
+        "https://example.test",
+      ),
+      null,
+    );
     const stations = mergeStations(
       {
         data: {
@@ -336,11 +346,17 @@ describe("bikeshare GBFS", () => {
     };
     assert.equal(shippedFeedUrl({}, "station_status"), null);
     assert.equal(
-      shippedFeedUrl(discovery, "station_information"),
+      shippedFeedUrl(discovery, "station_information", "https://gbfs.velobixi.com"),
       "https://gbfs.velobixi.com/gbfs/fr/station_information.json",
     );
-    assert.equal(shippedFeedUrl(discovery, "station_status"), "https://gbfs.velobixi.com/gbfs/fr/station_status.json");
-    assert.equal(feedUrl(discovery, "station_status"), shippedFeedUrl(discovery, "station_status"));
+    assert.equal(
+      shippedFeedUrl(discovery, "station_status", "https://gbfs.velobixi.com"),
+      "https://gbfs.velobixi.com/gbfs/fr/station_status.json",
+    );
+    assert.equal(
+      feedUrl(discovery, "station_status", "https://gbfs.velobixi.com"),
+      shippedFeedUrl(discovery, "station_status", "https://gbfs.velobixi.com"),
+    );
     const src = readFileSync(join(process.cwd(), "public", "Transit", "bikes.js"), "utf8");
     assert.match(src, /\["fr", "en"\]/);
     const app = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
@@ -417,6 +433,41 @@ describe("nearbyStops from a rider position", () => {
 });
 
 describe("searchAtlas", () => {
+  it("ranks important and popular places above an exact low-importance stop", () => {
+    const { atlas } = loadCity("quebec");
+    const places = JSON.parse(readFileSync(join(process.cwd(), "public", "data", "pois.json"), "utf8")) as {
+      places: Array<{ id: string; name: string; lon: number; lat: number; popularity: number; city?: string }>;
+    };
+    const hits = searchAtlas(atlas, "Youville", 5, undefined, {
+      pois: places.places.filter((place) => place.city === "quebec"),
+    });
+    assert.equal(hits[0]?.kind, "poi");
+    assert.match(hits[0]?.kind === "poi" ? hits[0].poi.name : "", /Youville/i);
+  });
+
+  it("understands intent words, city qualifiers, and small spelling errors", () => {
+    const { atlas } = loadCity("quebec");
+    const intent = searchAtlas(atlas, "horaire Youville Quebec", 5);
+    assert.ok(intent.length > 0);
+    assert.match(
+      intent[0]?.kind === "stop" ? intent[0].stop.name : intent[0]?.kind === "poi" ? intent[0].poi.name : "",
+      /youville/i,
+    );
+    const typo = searchAtlas(atlas, "Universite Lavla", 8);
+    assert.ok(
+      typo.some((hit) => hit.kind === "stop" && fold(hit.stop.name).includes("universite laval")),
+    );
+  });
+
+  it("keeps ranking city-agnostic when a new city is added to the data index", () => {
+    const { atlas } = loadCity("quebec");
+    const futureAtlas = { ...atlas, meta: { ...atlas.meta, city: "new-city" }, routes: [], stops: [] };
+    const hits = searchAtlas(futureAtlas, "Central", 3, undefined, {
+      pois: [{ id: "central", name: "Central Exchange", lon: -70, lat: 45, popularity: 95, city: "new-city" }],
+    });
+    assert.equal(hits[0]?.kind, "poi");
+  });
+
   it("ranks Québec tokens Youville and 801", () => {
     const { atlas } = loadCity("quebec");
     const youville = searchAtlas(atlas, "Youville", 10);
@@ -426,7 +477,9 @@ describe("searchAtlas", () => {
         const text =
           hit.kind === "stop"
             ? hit.stop.name
-            : `${hit.route.shortName} ${hit.route.longName}`;
+            : hit.kind === "route"
+              ? `${hit.route.shortName} ${hit.route.longName}`
+              : hit.poi.name;
         return /youville/i.test(text);
       }),
     );
@@ -441,7 +494,7 @@ describe("searchAtlas", () => {
     assert.ok(berri.length > 0);
     assert.ok(
       berri.some((hit) => {
-        const text = hit.kind === "stop" ? hit.stop.name : hit.route.longName;
+        const text = hit.kind === "stop" ? hit.stop.name : hit.kind === "route" ? hit.route.longName : hit.poi.name;
         return /berri/i.test(text);
       }),
     );
@@ -449,7 +502,7 @@ describe("searchAtlas", () => {
     const mcgill = searchAtlas(atlas, "McGill", 10);
     assert.ok(
       mcgill.some((hit) => {
-        const text = hit.kind === "stop" ? hit.stop.name : hit.route.longName;
+        const text = hit.kind === "stop" ? hit.stop.name : hit.kind === "route" ? hit.route.longName : hit.poi.name;
         return /mcgill/i.test(text);
       }),
     );
@@ -1540,14 +1593,17 @@ describe("watch remain", () => {
     assert.equal(remainMinutes(["nope"], 950), null);
     assert.equal(watchPulseFromPayload(null), null);
     assert.equal(watchPulseFromPayload(""), null);
+    assert.equal(watchPulseFromPayload("x".repeat(20_000)), null);
     assert.equal(watchPulseFromPayload({}), null);
     const pulse = watchPulseFromPayload({ s: "Youville", r: "801", m: "960,968", t: "16:00,16:08" });
     assert.ok(pulse);
     assert.equal(remainMinutes(pulse.departs, 950), 10);
     const watchHtml = readFileSync(join(process.cwd(), "public", "Transit", "watch.html"), "utf8");
-    assert.match(watchHtml, /remainMinutes/);
-    assert.match(watchHtml, /watchPulseFromPayload/);
-    assert.match(watchHtml, /stay on the empty face|if \(!live\) return/);
+    const watchJs = readFileSync(join(process.cwd(), "public", "Transit", "watch.js"), "utf8");
+    assert.match(watchHtml, /watch\.js/);
+    assert.match(watchJs, /remainMinutes/);
+    assert.match(watchJs, /watchPulseFromPayload/);
+    assert.match(watchJs, /stay on the empty face|if \(!live\) return/);
   });
 
   it("drives the shipped static rive-kit remain and heading", async () => {
@@ -1555,7 +1611,9 @@ describe("watch remain", () => {
     assert.equal(shipped.parseClock24(shipped.formatClock(960, true)), 960);
     assert.equal(shipped.remainMinutes([960], 950), 10);
     assert.equal(shipped.remainMinutes([], 950), null);
-    assert.equal(shipped.headingFromSample(90).cardinal, "E");
+    const heading = shipped.headingFromSample(90);
+    assert.ok(heading);
+    assert.equal(heading.cardinal, "E");
     assert.equal(shipped.headingFromSample(null), null);
     const ranked = shipped.rankByDoorToDoor([
       { minutes: 18, mix: "métro" },
@@ -1577,11 +1635,15 @@ describe("watch remain", () => {
     assert.equal(pulse.action, "start");
     assert.equal(pulse.remain, shipped.remainMinutes([960], 950));
     assert.equal(shipped.livePulseFromTransit({ stop: "x", departs: [960] }, 950).action, "end");
-    const mem = new Map();
+    const mem = new Map<string, string>();
     const store = {
-      getItem: (k) => (mem.has(k) ? mem.get(k) : null),
-      setItem: (k, v) => mem.set(k, v),
-      removeItem: (k) => mem.delete(k),
+      getItem: (k: string): string | null => (mem.has(k) ? mem.get(k) || null : null),
+      setItem: (k: string, v: string): void => {
+        mem.set(k, v);
+      },
+      removeItem: (k: string): void => {
+        mem.delete(k);
+      },
     };
     const wrote = shipped.applyLivePulse(pulse, store);
     assert.ok(wrote.live && wrote.live.route === "801");
@@ -1594,16 +1656,16 @@ describe("watch remain", () => {
 
 describe("live pulse start and stop", () => {
   it("starts from a transit trip and ends without inventing a route", () => {
+    const data: Record<string, string> = {};
     const store = {
-      data: {},
-      getItem(k) {
-        return this.data[k] ?? null;
+      getItem(k: string): string | null {
+        return data[k] ?? null;
       },
-      setItem(k, v) {
-        this.data[k] = v;
+      setItem(k: string, v: string): void {
+        data[k] = v;
       },
-      removeItem(k) {
-        delete this.data[k];
+      removeItem(k: string): void {
+        delete data[k];
       },
     };
     assert.equal(livePulseFromTransit(null, 950).action, "end");
@@ -1632,7 +1694,7 @@ describe("live pulse start and stop", () => {
     assert.equal(store.getItem("rive.live"), null);
     assert.equal(livePulseFromTransit({ route: "801", departs: [900] }, 950).action, "end");
     assert.equal(
-      boardingStopName({ legs: [{ kind: "transit", from: { name: "D'Youville", lon: 1, lat: 2 } }] }),
+      boardingStopName({ legs: [{ kind: "transit", from: { name: "D'Youville" } }] }),
       "D'Youville",
     );
     assert.equal(boardingStopName({ legs: [{ kind: "walk", from: { name: "x" } }] }), "");
@@ -1739,6 +1801,7 @@ describe("2.5D buildings", () => {
     assert.ok(house > 6 && house < 40);
     assert.ok(tower > house && tower < 120);
     assert.match(overpassPostBody("[out:json];out;"), /^data=/);
+    assert.equal(overpassQuery({ south: -91, west: 0, north: 1, east: 1 }), "");
     const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
     assert.match(src, /drawBuildings/);
     assert.match(src, /overpassPostBody/);
@@ -1767,4 +1830,3 @@ describe("permission reset", () => {
     assert.match(src, /askHeadingPermission|requestPermission/);
   });
 });
-

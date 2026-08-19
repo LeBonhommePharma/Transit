@@ -70,6 +70,19 @@ describe("HTTP search / departures / plan handlers", () => {
     assert.equal(typeof body.error, "string");
   });
 
+  it("rejects an oversized plan body before JSON parsing", async () => {
+    const res = await planPost(
+      new Request("http://rive.test/api/plan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{" + "x".repeat(70_000),
+      }),
+    );
+    const { status, body } = await readJson(res);
+    assert.equal(status, 400);
+    assert.equal(typeof body.error, "string");
+  });
+
   it("rejects a plan body missing from, to, or city", async () => {
     const res = await planPost(
       new Request("http://rive.test/api/plan", {
@@ -178,46 +191,30 @@ describe("HTTP search / departures / plan handlers", () => {
     const shape = decodePolyline(route.dirs[0].line);
     const [lon, lat] = shape[1];
     const at = Date.now();
+    let cookie = "";
     for (const jitter of [0, 0.00004, -0.00004]) {
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      if (cookie) headers.cookie = cookie;
       const res = await probePost(
         new Request("http://rive.test/api/probe", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers,
           body: JSON.stringify({ lon: lon + jitter, lat, at, routeId: route.id }),
         }),
       );
       const { status, body } = await readJson(res);
       assert.equal(status, 200);
       assert.equal(body.accepted, true);
+      cookie = res.headers.get("set-cookie")?.split(";", 1)[0] || cookie;
     }
-    const officialDepart = 800;
-    const nowMinutes = 790;
-    const expectedAlongMeters = 4000;
     const put = await probePut(
       new Request("http://rive.test/api/probe", {
         method: "PUT",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", cookie },
         body: JSON.stringify({
+          city: "montreal",
           routeId: route.id,
           shape,
-          officialDepart,
-          now: nowMinutes,
-          expectedAlongMeters,
-          due: [
-            {
-              routeId: route.id,
-              shortName: route.shortName,
-              color: route.color,
-              textColor: route.textColor,
-              stopId: "probe-stop",
-              stopName: "probe",
-              meters: 0,
-              headsign: "test",
-              depart: officialDepart,
-              wait: officialDepart - nowMinutes,
-              clocks: ["13:20", "13:28"],
-            },
-          ],
         }),
       }),
     );
@@ -225,13 +222,20 @@ describe("HTTP search / departures / plan handlers", () => {
     assert.equal(fusedBody.status, 200);
     const fused = fusedBody.body.fused as { etaShiftMinutes?: number } | null;
     assert.ok(fused);
-    assert.ok(typeof fused.etaShiftMinutes === "number");
-    assert.ok(fused.etaShiftMinutes > 0);
-    const due = fusedBody.body.due as Array<{ wait?: number; depart?: number; clocks?: string[] }>;
-    assert.ok(Array.isArray(due) && due[0]);
-    assert.equal(due[0].wait, officialDepart + fused.etaShiftMinutes - nowMinutes);
-    assert.equal(due[0].depart, officialDepart + fused.etaShiftMinutes);
-    assert.ok(Array.isArray(due[0].clocks));
-    assert.notEqual(due[0].clocks?.[0], "13:20");
+    assert.equal(fused.etaShiftMinutes, 0);
+    assert.equal(fusedBody.body.due, null);
+    assert.equal(fusedBody.body.officialUnchanged, true);
+  });
+
+  it("does not expose probe fusion across anonymous sessions", async () => {
+    const res = await probePut(
+      new Request("http://rive.test/api/probe", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ city: "montreal", routeId: "1" }),
+      }),
+    );
+    const { status } = await readJson(res);
+    assert.equal(status, 401);
   });
 });

@@ -144,6 +144,6 @@ export function planTrajectories(
   now: number,
   active: Set<number>,
   bikes: BikeStation[] = [],
-): TrajectoryOption[] {
+): Array<TrajectoryOption & { gap: number }> {
   return annotateTimeGaps(rankByDoorToDoor(trajectoryChoices(planTrip(atlas, timetable, from, to, now, active, bikes))));
 }

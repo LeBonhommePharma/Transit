@@ -25,11 +25,13 @@ import type {
   Itinerary,
   Place,
 } from "@/lib/atlas/types";
-import { understandQuery } from "@/lib/assist";
+import type { Poi } from "@/lib/poi";
+import { understandQuery, type CityHint } from "@/lib/assist";
 import { t, type MessageId } from "@/lib/i18n";
-import { firstStopFromQuery, placeFromStop, searchAtlas } from "@/lib/search";
+import { placeFromStop, searchAtlas } from "@/lib/search";
 import { resolveSearchAction } from "@/lib/search-submit";
 import { formatClock, formatRelative } from "@/lib/time";
+import { fetchJson, readJsonResponse } from "@/lib/client-http";
 
 type Field = "from" | "to";
 type Departure = {
@@ -45,15 +47,10 @@ type Departure = {
   times?: number[];
 };
 
-const CITIES: Array<{ id: CityId; label: string }> = [
-  { id: "quebec", label: "Québec" },
-  { id: "montreal", label: "Montréal" },
+const FALLBACK_CITIES: Array<{ id: CityId; label: string; hints: [string, string] }> = [
+  { id: "quebec", label: "Québec", hints: ["Place D'Youville", "Terminus de la Traverse"] },
+  { id: "montreal", label: "Montréal", hints: ["Berri-UQAM", "Terminus Montmorency"] },
 ];
-
-const HINTS: Record<CityId, [string, string]> = {
-  quebec: ["Place D'Youville", "Terminus de la Traverse"],
-  montreal: ["Berri-UQAM", "Terminus Montmorency"],
-};
 
 function modeIcon(type: number, className: string) {
   if (type === 1) return <Subway className={className} weight="regular" />;
@@ -63,8 +60,10 @@ function modeIcon(type: number, className: string) {
 export function RiveApp() {
   const reduce = useReducedMotion();
   const [locale] = useState("fr");
+  const [cities, setCities] = useState(FALLBACK_CITIES);
   const [city, setCity] = useState<CityId>("quebec");
   const [atlas, setAtlas] = useState<Atlas | null>(null);
+  const [pois, setPois] = useState<Poi[]>([]);
   const [loadError, setLoadError] = useState("");
   const [fromQuery, setFromQuery] = useState("");
   const [toQuery, setToQuery] = useState("");
@@ -85,18 +84,50 @@ export function RiveApp() {
   const tr = (id: MessageId) => t(id, locale);
 
   useEffect(() => {
+    fetchJson<{ cities?: Array<{ city?: unknown; name?: unknown }> }>("/data/index.json", 2 * 1024 * 1024)
+      .then((data: { cities?: Array<{ city?: unknown; name?: unknown }> } | null) => {
+        const loaded = (data?.cities || [])
+          .filter(
+            (item): item is { city: string; name: string } =>
+              typeof item.city === "string" &&
+              item.city.length <= 64 &&
+              /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(item.city) &&
+              typeof item.name === "string",
+          )
+          .map((item) => ({
+            id: item.city,
+            label: item.name,
+            hints: [item.name, "Arrêts près d'ici"] as [string, string],
+          }));
+        if (loaded.length) setCities(loaded);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     let alive = true;
-    fetch(`/data/${city}/atlas.json`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Atlas introuvable. Lance npm run ingest.");
-        return res.json();
-      })
-      .then((data: Atlas) => {
-        if (alive) setAtlas(data);
-      })
-      .catch((err: Error) => {
-        if (alive) setLoadError(err.message);
-      });
+    async function load() {
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(city) || city.length > 64) throw new Error("Ville invalide.");
+      const data = await fetchJson<Atlas>(`/data/${encodeURIComponent(city)}/atlas.json`);
+      let places: Poi[] = [];
+      for (const path of [`/data/${encodeURIComponent(city)}/pois.json`, "/data/pois.json"]) {
+        let parsed: { places?: Poi[] };
+        try {
+          parsed = await fetchJson<{ places?: Poi[] }>(path, 2 * 1024 * 1024);
+        } catch {
+          continue;
+        }
+        places = (parsed.places || []).filter((place) => !place.city || place.city === city);
+        break;
+      }
+      if (alive) {
+        setAtlas(data);
+        setPois(places);
+      }
+    }
+    load().catch((err: Error) => {
+      if (alive) setLoadError(err.message);
+    });
     return () => {
       alive = false;
     };
@@ -105,8 +136,8 @@ export function RiveApp() {
   const hits = useMemo(() => {
     if (!atlas) return [];
     const q = activeField === "from" ? fromQuery : toQuery;
-    return searchAtlas(atlas, q, 7);
-  }, [atlas, activeField, fromQuery, toQuery]);
+    return searchAtlas(atlas, q, 7, undefined, { pois });
+  }, [atlas, activeField, fromQuery, toQuery, pois]);
 
   const selectedRoute = atlas?.routes.find((r) => r.id === selectedRouteId) ?? null;
   const activeItinerary = itineraries.find((item) => item.id === chosen) ?? itineraries[0] ?? null;
@@ -131,13 +162,27 @@ export function RiveApp() {
     setSelectedStop(stop);
     setSelectedRouteId(null);
     pickStopAs(activeField, stop);
-    const res = await fetch(`/api/departures?city=${city}&stop=${encodeURIComponent(stop.id)}`);
+    const res = await fetch(`/api/departures?city=${encodeURIComponent(city)}&stop=${encodeURIComponent(stop.id)}`);
     if (!res.ok) {
       setDepartures([]);
       return;
     }
-    const data = (await res.json()) as { departures: Departure[] };
+    const data = await readJsonResponse<{ departures: Departure[] }>(res, 512 * 1024);
     setDepartures(data.departures);
+  }
+
+  function pickPoiAs(field: Field, poi: Poi) {
+    const place: Place = { label: poi.name, lon: poi.lon, lat: poi.lat };
+    if (field === "from") {
+      setFrom(place);
+      setFromQuery(poi.name);
+    } else {
+      setTo(place);
+      setToQuery(poi.name);
+    }
+    const nextFrom = field === "from" ? place : from;
+    const nextTo = field === "to" ? place : to;
+    if (nextFrom && nextTo) void plan(nextFrom, nextTo);
   }
 
   async function plan(nextFrom = from, nextTo = to) {
@@ -150,7 +195,7 @@ export function RiveApp() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ city, from: nextFrom, to: nextTo }),
       });
-      const data = (await res.json()) as { itineraries?: Itinerary[]; error?: string };
+      const data = await readJsonResponse<{ itineraries?: Itinerary[]; error?: string }>(res, 4 * 1024 * 1024);
       if (!res.ok) throw new Error(data.error || "Planification impossible.");
       const list = data.itineraries ?? [];
       setItineraries(list);
@@ -174,10 +219,12 @@ export function RiveApp() {
       return;
     }
     if (action === "schedule" && atlas && raw) {
-      const intent = await understandQuery(raw);
+       const intent = await understandQuery(raw, cities as CityHint[]);
       if (intent.city && intent.city !== city) setCity(intent.city);
-      const stop = firstStopFromQuery(atlas, intent.query);
-      if (stop) void openStop(stop);
+       const hit = searchAtlas(atlas, intent.query, 1, undefined, { pois })[0];
+       if (hit?.kind === "stop") void openStop(hit.stop);
+       else if (hit?.kind === "poi") pickPoiAs(activeField, hit.poi);
+       else if (hit?.kind === "route") setSelectedRouteId(hit.route.id);
     }
   }
 
@@ -238,7 +285,7 @@ export function RiveApp() {
       <div className="pointer-events-none absolute inset-0 z-[2]">
         <div className="pointer-events-auto mx-auto flex w-max pt-4">
           <div className="glass flex rounded-full p-1 backdrop-blur-xl">
-            {CITIES.map((item) => {
+            {cities.map((item) => {
               const on = item.id === city;
               return (
                 <button
@@ -353,6 +400,22 @@ export function RiveApp() {
                         </span>
                       </button>
                     </li>
+                  ) : hit.kind === "poi" ? (
+                    <li key={`p-${hit.poi.id}`}>
+                      <button
+                        type="button"
+                        onClick={() => pickPoiAs(activeField, hit.poi)}
+                        className="flex w-full items-center gap-3 px-2 py-2.5 text-left"
+                      >
+                        <MapPin size={16} className="text-[#d97706]" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm">{hit.poi.name}</span>
+                          <span className="block text-[11px] text-black/40">
+                            {hit.poi.category || "Point important"} · popularité {Math.round(hit.poi.popularity)}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
                   ) : (
                     <li key={`r-${hit.route.id}`}>
                       <button
@@ -378,7 +441,7 @@ export function RiveApp() {
 
             {!fromQuery && !toQuery && (
               <div className="mt-3 flex flex-wrap gap-2 px-1">
-                {HINTS[city].map((hint, index) => (
+                {(cities.find((item) => item.id === city)?.hints || ["Ici", "Arrêts près d'ici"]).map((hint, index) => (
                   <button
                     key={hint}
                     type="button"
@@ -577,4 +640,3 @@ function RouteBadge({ route }: { route: AtlasRoute }) {
     </span>
   );
 }
-

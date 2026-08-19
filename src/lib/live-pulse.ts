@@ -48,7 +48,17 @@ function asClocks(value: unknown): string[] {
 }
 
 /** Boarding pole only. Never the destination name. */
-export function boardingStopName(trip: { legs?: Array<{ kind?: string; from?: { name?: string; label?: string } }> } | null | undefined): string {
+export function boardingStopName(
+  trip:
+    | {
+        legs?: Array<{
+          kind?: string;
+          from?: { name?: string; label?: string; lon?: number; lat?: number };
+        }>;
+      }
+    | null
+    | undefined,
+): string {
   const transit = (trip?.legs || []).find((leg) => leg.kind === "transit");
   const from = transit?.from;
   if (!from || typeof from !== "object") return "";

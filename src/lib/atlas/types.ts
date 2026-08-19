@@ -1,4 +1,5 @@
-export type CityId = "quebec" | "montreal";
+/** City slugs are generated from public/data/index.json as feeds are added. */
+export type CityId = string;
 
 export type RouteDir = {
   id: 0 | 1;
@@ -18,6 +19,8 @@ export type AtlasRoute = {
   agencyId: string;
   agencyName: string;
   dirs: RouteDir[];
+  aliases?: string[];
+  importance?: number;
 };
 
 export type AtlasStop = {
@@ -32,6 +35,9 @@ export type AtlasStop = {
   agencyId?: string;
   routes: string[];
   children?: string[];
+  aliases?: string[];
+  importance?: number;
+  popularity?: number;
 };
 
 export type AgencyMeta = {

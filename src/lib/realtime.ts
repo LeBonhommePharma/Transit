@@ -2,6 +2,13 @@ import { decodePolyline, haversineMeters } from "./geo";
 import type { LineDue } from "./lines";
 import { formatClock } from "./time";
 
+const MAX_REALTIME_ITEMS = 5_000;
+const MAX_REALTIME_DETOURS = 500;
+const MAX_REALTIME_SHAPES = 500;
+const MAX_REALTIME_SHAPE_CHARS = 200_000;
+const MAX_REALTIME_TEXT = 128;
+const MAX_TEMP_STOPS = 500;
+
 export type TripUpdate = {
   routeId?: string;
   stopId?: string;
@@ -132,18 +139,18 @@ function num(value: unknown): number | undefined {
 }
 
 function str(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined;
+  return typeof value === "string" && value ? value.slice(0, MAX_REALTIME_TEXT) : undefined;
 }
 
 export function parseTempStops(raw: unknown): TempStop[] {
   if (!Array.isArray(raw)) return [];
   const out: TempStop[] = [];
-  for (const item of raw) {
+  for (const item of raw.slice(0, MAX_TEMP_STOPS)) {
     const row = asRecord(item);
     if (!row) continue;
     const lon = num(row.lon ?? row.longitude ?? row.stop_lon);
     const lat = num(row.lat ?? row.latitude ?? row.stop_lat);
-    if (lon == null || lat == null || (lon === 0 && lat === 0)) continue;
+    if (lon == null || lat == null || lon < -180 || lon > 180 || lat < -90 || lat > 90 || (lon === 0 && lat === 0)) continue;
     const id = str(row.id) || str(row.stopId) || str(row.stop_id);
     if (!id) continue;
     out.push({
@@ -158,19 +165,23 @@ export function parseTempStops(raw: unknown): TempStop[] {
 }
 
 function addSkip(detours: Detour[], routeId: string | undefined, stopId: string) {
+  if (!stopId || stopId.length > MAX_REALTIME_TEXT || detours.length >= MAX_REALTIME_DETOURS) return;
   const existing = detours.find((d) => d.routeId === routeId);
   if (existing) {
-    existing.skipStopIds = [...(existing.skipStopIds || []), stopId];
+    if ((existing.skipStopIds || []).length < MAX_REALTIME_ITEMS) {
+      existing.skipStopIds = [...(existing.skipStopIds || []), stopId];
+    }
     return;
   }
   detours.push({ routeId, skipStopIds: [stopId] });
 }
 
 function addTemp(detours: Detour[], routeId: string | undefined, stop: TempStop) {
+  if (detours.length >= MAX_REALTIME_DETOURS) return;
   const existing = detours.find((d) => d.routeId === routeId);
   const row = { ...stop, routeId: stop.routeId || routeId };
   if (existing) {
-    existing.tempStops = [...(existing.tempStops || []), row];
+    if ((existing.tempStops || []).length < MAX_TEMP_STOPS) existing.tempStops = [...(existing.tempStops || []), row];
     return;
   }
   detours.push({ routeId, tempStops: [row] });
@@ -189,12 +200,12 @@ export function parseRealtimePayload(raw: unknown): RealtimeBundle {
 
   const compactUpdates = root.updates;
   if (Array.isArray(compactUpdates)) {
-    for (const item of compactUpdates) {
+    for (const item of compactUpdates.slice(0, MAX_REALTIME_ITEMS)) {
       const row = asRecord(item);
       if (!row) continue;
       updates.push({
-        routeId: typeof row.routeId === "string" ? row.routeId : undefined,
-        stopId: typeof row.stopId === "string" ? row.stopId : undefined,
+        routeId: str(row.routeId),
+        stopId: str(row.stopId),
         delaySec: num(row.delaySec),
         canceled: Boolean(row.canceled),
         departure: num(row.departure),
@@ -202,31 +213,31 @@ export function parseRealtimePayload(raw: unknown): RealtimeBundle {
     }
   }
   if (Array.isArray(root.vehicles)) {
-    for (const item of root.vehicles) {
+    for (const item of root.vehicles.slice(0, MAX_REALTIME_ITEMS)) {
       const row = asRecord(item);
       if (!row) continue;
       const lon = num(row.lon);
       const lat = num(row.lat);
-      if (lon == null || lat == null) continue;
+      if (lon == null || lat == null || lon < -180 || lon > 180 || lat < -90 || lat > 90) continue;
       vehicles.push({
-        routeId: typeof row.routeId === "string" ? row.routeId : undefined,
+        routeId: str(row.routeId),
         lon,
         lat,
       });
     }
   }
   if (Array.isArray(root.detours)) {
-    for (const item of root.detours) {
+    for (const item of root.detours.slice(0, MAX_REALTIME_DETOURS)) {
       const row = asRecord(item);
       if (!row) continue;
       const skip = Array.isArray(row.skipStopIds)
-        ? row.skipStopIds.filter((id): id is string => typeof id === "string")
+        ? row.skipStopIds.filter((id): id is string => typeof id === "string").slice(0, MAX_REALTIME_ITEMS)
         : [];
       const temps = parseTempStops(row.tempStops ?? row.temporaryStops ?? row.addedStops);
       const window = detourWindow(row);
       detours.push({
-        routeId: typeof row.routeId === "string" ? row.routeId : typeof row.route_id === "string" ? row.route_id : undefined,
-        shape: typeof row.shape === "string" ? row.shape : undefined,
+        routeId: str(row.routeId) || str(row.route_id),
+        shape: typeof row.shape === "string" && row.shape.length <= MAX_REALTIME_SHAPE_CHARS ? row.shape : undefined,
         skipStopIds: skip,
         extraMinutes: num(row.extraMinutes),
         tempStops: temps,
@@ -236,39 +247,33 @@ export function parseRealtimePayload(raw: unknown): RealtimeBundle {
     }
   }
   if (root.shapes && typeof root.shapes === "object") {
-    for (const [id, line] of Object.entries(root.shapes as Record<string, unknown>)) {
-      if (typeof line === "string" && line) shapes[id] = line;
+    for (const [id, line] of Object.entries(root.shapes as Record<string, unknown>).slice(0, MAX_REALTIME_SHAPES)) {
+      if (id.length <= MAX_REALTIME_TEXT && typeof line === "string" && line && line.length <= MAX_REALTIME_SHAPE_CHARS) {
+        shapes[id] = line;
+      }
     }
   }
 
   const entities = root.entity ?? root.entities;
   if (Array.isArray(entities)) {
-    for (const entity of entities) {
+    for (const entity of entities.slice(0, MAX_REALTIME_ITEMS)) {
       const rec = asRecord(entity);
       if (!rec) continue;
       const tripUpdate = asRecord(rec.trip_update ?? rec.tripUpdate);
       if (tripUpdate) {
         const trip = asRecord(tripUpdate.trip);
-        const routeId =
-          (typeof trip?.route_id === "string" && trip.route_id) ||
-          (typeof trip?.routeId === "string" && trip.routeId) ||
-          undefined;
+        const routeId = str(trip?.route_id) || str(trip?.routeId);
         const canceled =
           tripUpdate.schedule_relationship === 3 ||
           tripUpdate.scheduleRelationship === "CANCELED" ||
           trip?.schedule_relationship === 3;
         const stus = tripUpdate.stop_time_update ?? tripUpdate.stopTimeUpdate;
         if (Array.isArray(stus) && stus.length) {
-          for (const stu of stus) {
+          for (const stu of stus.slice(0, MAX_REALTIME_ITEMS)) {
             const stop = asRecord(stu);
             if (!stop) continue;
             const dep = asRecord(stop.departure) || asRecord(stop.arrival);
-            const stopId =
-              typeof stop.stop_id === "string"
-                ? stop.stop_id
-                : typeof stop.stopId === "string"
-                  ? stop.stopId
-                  : undefined;
+            const stopId = str(stop.stop_id) || str(stop.stopId);
             const skipped = stop.schedule_relationship === 1 || stop.scheduleRelationship === "SKIPPED";
             updates.push({
               routeId,
@@ -295,7 +300,7 @@ export function parseRealtimePayload(raw: unknown): RealtimeBundle {
           effect === "STOP_MOVED";
         const informed = alert.informed_entity ?? alert.informedEntity;
         if (skipEffect && Array.isArray(informed)) {
-          for (const ent of informed) {
+          for (const ent of informed.slice(0, MAX_REALTIME_ITEMS)) {
             const row = asRecord(ent);
             if (!row) continue;
             const routeId = str(row.route_id) || str(row.routeId);
@@ -309,17 +314,14 @@ export function parseRealtimePayload(raw: unknown): RealtimeBundle {
         for (const stop of temps) addTemp(detours, stop.routeId, stop);
       }
       const vehicle = asRecord(rec.vehicle);
-      if (vehicle) {
+      if (vehicle && vehicles.length < MAX_REALTIME_ITEMS) {
         const trip = asRecord(vehicle.trip);
         const pos = asRecord(vehicle.position);
         const lon = num(pos?.longitude ?? pos?.lon);
         const lat = num(pos?.latitude ?? pos?.lat);
-        if (lon != null && lat != null) {
+        if (lon != null && lat != null && lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90) {
           vehicles.push({
-            routeId:
-              (typeof trip?.route_id === "string" && trip.route_id) ||
-              (typeof trip?.routeId === "string" && trip.routeId) ||
-              undefined,
+            routeId: str(trip?.route_id) || str(trip?.routeId),
             lon,
             lat,
           });
@@ -328,7 +330,12 @@ export function parseRealtimePayload(raw: unknown): RealtimeBundle {
     }
   }
 
-  return { updates, vehicles, shapes, detours };
+  return {
+    updates: updates.slice(0, MAX_REALTIME_ITEMS),
+    vehicles: vehicles.slice(0, MAX_REALTIME_ITEMS),
+    shapes,
+    detours: detours.slice(0, MAX_REALTIME_DETOURS),
+  };
 }
 
 export function hopMinutes(hops: number[], from: number, to: number): number {

@@ -6,15 +6,35 @@
  * Secondary feeds prefix every GTFS id so route 11 (RTC) and route 11
  * (STLévis) never collide. Primary feed ids stay unprefixed.
  */
-import { createReadStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  createReadStream,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createInterface } from "node:readline";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CACHE = join(ROOT, ".cache", "gtfs");
 const OUT = join(ROOT, "public", "data");
+const MAX_ZIP_BYTES = 128 * 1024 * 1024;
+const MAX_UNZIPPED_BYTES = 1_024 * 1024 * 1024;
+const MAX_EXTRACTED_FILES = 2_000;
+const MAX_SYNC_CSV_BYTES = 128 * 1024 * 1024;
+const MAX_CSV_BYTES = 512 * 1024 * 1024;
+const MAX_CSV_LINE_BYTES = 2 * 1024 * 1024;
+const MAX_STREAM_ROWS = 10_000_000;
+const MAX_SYNC_ROWS = 1_000_000;
+const MAX_SHAPE_POINTS_PER_LINE = 10_000;
 
 const REGIONS = [
   {
@@ -79,6 +99,7 @@ function prefixed(prefix, id) {
 }
 
 function parseCsvLine(line) {
+  if (line.length > MAX_CSV_LINE_BYTES) throw new Error("GTFS row too large");
   const out = [];
   let cur = "";
   let quoted = false;
@@ -99,19 +120,23 @@ function parseCsvLine(line) {
       quoted = true;
     } else if (c === ",") {
       out.push(cur);
+      if (out.length > 256) throw new Error("GTFS row has too many fields");
       cur = "";
     } else {
       cur += c;
     }
   }
   out.push(cur);
+  if (out.length > 256) throw new Error("GTFS row has too many fields");
   return out;
 }
 
 function readCsvSync(path) {
   if (!existsSync(path)) return { headers: [], rows: [] };
+  if (statSync(path).size > MAX_SYNC_CSV_BYTES) throw new Error(`GTFS file too large for bounded sync read: ${path}`);
   const text = readFileSync(path, "utf8").replace(/^\uFEFF/, "");
   const lines = text.split(/\r?\n/).filter((l) => l.length > 0);
+  if (lines.length > MAX_SYNC_ROWS) throw new Error(`GTFS row count too large for sync read: ${path}`);
   if (lines.length === 0) return { headers: [], rows: [] };
   const headers = parseCsvLine(lines[0]).map((h) => h.trim());
   const rows = [];
@@ -126,11 +151,14 @@ function readCsvSync(path) {
 
 async function readCsvStream(path, onRow) {
   if (!existsSync(path)) return;
+  if (statSync(path).size > MAX_CSV_BYTES) throw new Error(`GTFS file too large: ${path}`);
   const stream = createReadStream(path, { encoding: "utf8" });
   const rl = createInterface({ input: stream, crlfDelay: Infinity });
   let headers = null;
+  let rows = 0;
   for await (const raw of rl) {
     if (!raw) continue;
+    if (raw.length > MAX_CSV_LINE_BYTES) throw new Error(`GTFS row too large: ${path}`);
     if (!headers) {
       headers = parseCsvLine(raw.replace(/^\uFEFF/, "")).map((h) => h.trim());
       continue;
@@ -138,6 +166,8 @@ async function readCsvStream(path, onRow) {
     const cols = parseCsvLine(raw);
     const row = {};
     for (let j = 0; j < headers.length; j++) row[headers[j]] = (cols[j] ?? "").trim();
+    rows += 1;
+    if (rows > MAX_STREAM_ROWS) throw new Error(`GTFS row count too large: ${path}`);
     onRow(row);
   }
 }
@@ -222,15 +252,84 @@ function ensureZip(feed) {
   }
   if (!existsSync(zipPath)) {
     console.log(`Downloading ${feed.slug}…`);
-    execFileSync("curl", ["-L", "--fail", "--retry", "3", "-o", zipPath, feed.url], {
+    execFileSync(
+      "curl",
+      ["-L", "--fail", "--retry", "3", "--max-filesize", String(MAX_ZIP_BYTES), "--proto", "=https", "--proto-redir", "=https", "-o", zipPath, feed.url],
+      {
       stdio: "inherit",
-    });
+      },
+    );
   }
-  if (!existsSync(join(dir, "routes.txt"))) {
-    mkdirSync(dir, { recursive: true });
-    execFileSync("unzip", ["-o", "-q", zipPath, "-d", dir], { stdio: "inherit" });
+  if (statSync(zipPath).size > MAX_ZIP_BYTES) throw new Error(`GTFS archive too large: ${zipPath}`);
+  if (existsSync(join(dir, "routes.txt"))) {
+    assertSafeExtractedDir(dir);
+    return dir;
+  }
+  validateZipArchive(zipPath);
+  const tempDir = join(CACHE, `${feed.slug}.tmp-${process.pid}-${Date.now()}`);
+  rmSync(tempDir, { recursive: true, force: true });
+  mkdirSync(tempDir, { recursive: true });
+  try {
+    execFileSync("unzip", ["-q", zipPath, "-d", tempDir], { stdio: "inherit" });
+    assertSafeExtractedDir(tempDir);
+    if (!existsSync(join(tempDir, "routes.txt"))) throw new Error(`GTFS archive missing routes.txt: ${feed.slug}`);
+    rmSync(dir, { recursive: true, force: true });
+    renameSync(tempDir, dir);
+  } catch (error) {
+    rmSync(tempDir, { recursive: true, force: true });
+    throw error;
   }
   return dir;
+}
+
+function validateZipArchive(zipPath) {
+  const names = execFileSync("unzip", ["-Z1", zipPath], { encoding: "utf8" })
+    .split(/\r?\n/)
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (names.length > MAX_EXTRACTED_FILES) throw new Error(`GTFS archive has too many entries: ${zipPath}`);
+  for (const name of names) {
+    if (name.endsWith("/")) continue;
+    if (!/^[A-Za-z0-9_.-]+$/.test(name)) throw new Error(`Unsafe GTFS archive entry: ${name}`);
+  }
+  const listing = execFileSync("unzip", ["-l", zipPath], { encoding: "utf8" });
+  let total = 0;
+  for (const line of listing.split(/\r?\n/)) {
+    const match = line.match(/^\s*(\d+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+(.+)$/);
+    if (!match) continue;
+    total += Number(match[1]);
+    if (total > MAX_UNZIPPED_BYTES) throw new Error(`GTFS archive expands too far: ${zipPath}`);
+  }
+}
+
+function assertSafeExtractedDir(root) {
+  const base = resolve(root);
+  let files = 0;
+  let bytes = 0;
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      const rel = relative(base, resolve(path));
+      if (!rel || rel.startsWith("..") || resolve(base, rel) !== resolve(path)) {
+        throw new Error(`Unsafe extracted path: ${path}`);
+      }
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink() || stat.isBlockDevice() || stat.isCharacterDevice() || stat.isSocket()) {
+        throw new Error(`Unsafe extracted entry type: ${path}`);
+      }
+      if (stat.isDirectory()) {
+        walk(path);
+        continue;
+      }
+      if (!stat.isFile()) throw new Error(`Unsupported extracted entry: ${path}`);
+      files += 1;
+      bytes += stat.size;
+      if (files > MAX_EXTRACTED_FILES || bytes > MAX_UNZIPPED_BYTES) {
+        throw new Error(`Extracted GTFS data exceeds limits: ${root}`);
+      }
+    }
+  };
+  walk(base);
 }
 
 function pickHeadsign(counts) {
@@ -333,6 +432,7 @@ async function ingestFeed(region, feed) {
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
     const seq = Number(row.shape_pt_sequence || 0);
     const list = shapePoints.get(shapeId) || [];
+    if (list.length >= MAX_SHAPE_POINTS_PER_LINE) return;
     list.push([seq, lon, lat]);
     shapePoints.set(shapeId, list);
   });
