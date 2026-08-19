@@ -127,6 +127,72 @@ function winningDecl(html: string, selector: string, prop: string, widthPx: numb
   return win;
 }
 
+type CascadeEl = { tag: string; classNames: string[]; id?: string; attrs?: string[]; parent?: CascadeEl | null };
+
+function selectorSpecificity(sel: string): [number, number, number] {
+  const ids = sel.match(/#[\w-]+/g)?.length ?? 0;
+  const classes = sel.match(/\.[\w-]+/g)?.length ?? 0;
+  const tags = sel.match(/(^|[\s>+~])([A-Za-z][\w-]*)/g)?.length ?? 0;
+  return [ids, classes, tags];
+}
+
+function specBeats(a: [number, number, number], b: [number, number, number]): boolean {
+  if (a[0] !== b[0]) return a[0] > b[0];
+  if (a[1] !== b[1]) return a[1] > b[1];
+  return a[2] > b[2];
+}
+
+function compoundMatches(part: string, el: CascadeEl): boolean {
+  const tag = part.match(/^[A-Za-z][\w-]*/)?.[0];
+  const classes = [...part.matchAll(/\.([\w-]+)/g)].map((m) => m[1]);
+  const ids = [...part.matchAll(/#([\w-]+)/g)].map((m) => m[1]);
+  const attrs = [...part.matchAll(/\[([^\]]+)\]/g)].map((m) => m[1].replace(/=.*$/, "").trim());
+  if (tag && el.tag.toLowerCase() !== tag.toLowerCase()) return false;
+  if (ids.length && !ids.every((id) => el.id === id)) return false;
+  if (attrs.length && !attrs.every((name) => (el.attrs || []).includes(name))) return false;
+  if (!tag && !classes.length && !ids.length && !attrs.length) return false;
+  return classes.every((name) => el.classNames.includes(name));
+}
+
+function selectorMatches(sel: string, el: CascadeEl): boolean {
+  const parts = sel.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return false;
+  let cur: CascadeEl | null | undefined = el;
+  for (let i = parts.length - 1; i >= 0; i--) {
+    while (cur && !compoundMatches(parts[i], cur)) cur = cur.parent;
+    if (!cur) return false;
+    if (i > 0) cur = cur.parent;
+  }
+  return true;
+}
+
+function themeGlyph(theme: "day" | "night", glyph: "moon" | "sun"): CascadeEl {
+  const html: CascadeEl = { tag: "html", classNames: [theme] };
+  const toolbar: CascadeEl = { tag: "div", classNames: ["toolbar"], parent: html };
+  const button: CascadeEl = { tag: "button", classNames: ["icon"], parent: toolbar };
+  return { tag: "svg", classNames: [glyph === "moon" ? "i-moon" : "i-sun"], parent: button };
+}
+
+function winningDisplay(html: string, el: CascadeEl, widthPx = 1024): string | null {
+  let win: string | null = null;
+  let best: [number, number, number] = [-1, -1, -1];
+  let bestOrder = -1;
+  let order = 0;
+  for (const d of walkDecls(extractStyle(html))) {
+    if (d.prop !== "display") continue;
+    if (!mediaApplies(d.media, widthPx)) continue;
+    if (!selectorMatches(d.sel, el)) continue;
+    const spec = selectorSpecificity(d.sel);
+    if (specBeats(spec, best) || (spec[0] === best[0] && spec[1] === best[1] && spec[2] === best[2] && order > bestOrder)) {
+      win = d.value;
+      best = spec;
+      bestOrder = order;
+    }
+    order += 1;
+  }
+  return win;
+}
+
 describe("overlay polish and escape", () => {
   it("escapes untrusted overlay names and drives the shipped helper", async () => {
     const dirty = `<img src=x onerror=alert(1)> & "stop"`;
@@ -212,6 +278,36 @@ describe("overlay polish and escape", () => {
     assert.ok(contrastRatio(cssToken(night, "--ink"), cssToken(night, "--paper")) >= 4.5);
     assert.ok(contrastRatio(cssToken(night, "--muted"), cssToken(night, "--paper")) >= 4.5);
     assert.ok(contrastRatio(cssToken(night, "--chip-ink"), cssToken(night, "--chip")) >= 4.5);
+  });
+
+  it("shows one theme glyph and one Jour/Nuit label per day or night", async () => {
+    const html = readFileSync(join(process.cwd(), "public", "Transit", "index.html"), "utf8");
+    const dayMoon = winningDisplay(html, themeGlyph("day", "moon"));
+    const daySun = winningDisplay(html, themeGlyph("day", "sun"));
+    const nightMoon = winningDisplay(html, themeGlyph("night", "moon"));
+    const nightSun = winningDisplay(html, themeGlyph("night", "sun"));
+    assert.notEqual(dayMoon, "none", `day moon display=${String(dayMoon)}`);
+    assert.equal(daySun, "none");
+    assert.equal(nightMoon, "none");
+    assert.notEqual(nightSun, "none", `night sun display=${String(nightSun)}`);
+    assert.notEqual(dayMoon, daySun);
+    assert.notEqual(nightMoon, nightSun);
+
+    const kit = (await import(pathToFileURL(join(process.cwd(), "public", "Transit", "rive-kit.js")).href)) as {
+      themeButtonLabel: (theme: string) => string;
+    };
+    assert.equal(kit.themeButtonLabel("day"), "Nuit");
+    assert.equal(kit.themeButtonLabel("night"), "Jour");
+    assert.notEqual(kit.themeButtonLabel("day"), kit.themeButtonLabel("night"));
+    const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
+    const apply = src.match(/function applyTheme\([\s\S]*?\n\}/);
+    assert.ok(apply);
+    assert.match(apply[0], /themeButtonLabel\(state\.theme\)/);
+    assert.doesNotMatch(apply[0], /setAttribute\("aria-label", "Nuit"\)[\s\S]*setAttribute\("aria-label", "Jour"\)/);
+    assert.match(html, /id="theme"[^>]*aria-label="Nuit"/);
+    assert.match(html, /id="theme"[^>]*title="Nuit"/);
+    assert.match(html, /--sodium/);
+    assert.doesNotMatch(html, /fonts\.googleapis/);
   });
 
   it("yields no trip on junk clock or dest and stays outside coverage", () => {
