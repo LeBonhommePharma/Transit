@@ -13,7 +13,7 @@ import { firstStopFromQuery, placeFromStop, searchAtlas } from "./search";
 import { activeServiceIndexes } from "./services";
 import { minutesOfDay } from "./time";
 import { TRIP_ROAD_FILTER, TRIP_ROAD_PAINT, TRIP_TRANSIT_FILTER, TRIP_WALK_FILTER, itineraryCollection } from "./map-legs";
-import { mixLabel, navStepLabel, planTrajectories, transitMixName, tripStrokeStyle } from "./trajectory";
+import { MIX_FAMILIES, mixFamily, mixLabel, navStepLabel, planTrajectories, transitMixName, tripStrokeStyle } from "./trajectory";
 
 function loadCity(city: string): { atlas: Atlas; timetable: Timetable } {
   const root = join(process.cwd(), "public", "data", city);
@@ -78,15 +78,60 @@ describe("walk bike road and train mixes", () => {
     }
   });
 
-  it("names GTFS type 2 as train, not bus", () => {
-    assert.equal(transitMixName(2), "train");
-    assert.equal(transitMixName(106), "train");
-    assert.equal(transitMixName(1), "métro");
-    assert.equal(transitMixName(700), "bus");
-    assert.equal(transitMixName("nope"), "bus");
+  it("names GTFS urban forms instead of collapsing them to bus", () => {
+    const named: Array<[unknown, string]> = [
+      [0, "tram"],
+      [1, "métro"],
+      [2, "train"],
+      [3, "bus"],
+      [4, "traversier"],
+      [5, "tram"],
+      [6, "câble"],
+      [7, "funiculaire"],
+      [11, "trolleybus"],
+      [12, "monorail"],
+      [100, "train"],
+      [106, "train"],
+      [199, "train"],
+      [200, "bus"],
+      [400, "métro"],
+      [401, "métro"],
+      [405, "monorail"],
+      [700, "bus"],
+      [800, "trolleybus"],
+      [900, "tram"],
+      [1000, "traversier"],
+      [1200, "traversier"],
+      [1300, "câble"],
+      [1400, "funiculaire"],
+      ["nope", "bus"],
+      [null, "bus"],
+      [undefined, "bus"],
+    ];
+    for (const [type, name] of named) {
+      assert.equal(transitMixName(type), name, `type ${String(type)}`);
+    }
+    assert.notEqual(transitMixName(4), "bus");
+    assert.notEqual(transitMixName(1000), "bus");
     for (const type of [0, 3, 4, 5, 7, 11, 12, 200, 400, 700, 900, null, undefined]) {
       assert.notEqual(transitMixName(type), "train", `non-rail ${String(type)} must not mix as train`);
     }
+    assert.ok(MIX_FAMILIES.includes("traversier"));
+    assert.ok(MIX_FAMILIES.includes("tram"));
+    assert.ok(MIX_FAMILIES.includes("trolleybus"));
+    assert.ok(MIX_FAMILIES.includes("funiculaire"));
+    assert.ok(MIX_FAMILIES.includes("câble"));
+    assert.ok(MIX_FAMILIES.includes("monorail"));
+    assert.equal(mixFamily({ legs: [{ kind: "transit", type: 4 }] }), "traversier");
+    assert.equal(mixFamily({ legs: [{ kind: "transit", type: 0 }] }), "tram");
+    assert.equal(mixFamily({ legs: [{ kind: "transit", type: 11 }] }), "trolleybus");
+    assert.equal(mixFamily({ legs: [{ kind: "walk" }, { kind: "transit", type: 4 }] }), "traversier");
+    assert.equal(mixFamily({ legs: [{ kind: "walk" }] }), "marche");
+    assert.equal(mixFamily({ legs: [{ kind: "bike" }] }), "velo");
+    assert.equal(mixFamily({ legs: [{ kind: "road" }] }), "auto");
+    assert.equal(mixFamily({ legs: [{ kind: "transit", type: 1 }] }), "métro");
+    assert.equal(mixFamily({ legs: [{ kind: "transit", type: 2 }] }), "train");
+    assert.equal(mixFamily({ legs: [{ kind: "transit", type: 3 }] }), "bus");
     const label = mixLabel([
       {
         kind: "transit",
@@ -107,6 +152,27 @@ describe("walk bike road and train mixes", () => {
     ]);
     assert.equal(label, "train");
     assert.doesNotMatch(label, /bus/);
+    assert.equal(
+      mixLabel([
+        {
+          kind: "transit",
+          minutes: 12,
+          routeId: "stlevis:traverse",
+          shortName: "Traverse",
+          color: "#013888",
+          textColor: "#ffffff",
+          headsign: "Québec",
+          type: 4,
+          from: { label: "Lévis", lon: -71.178, lat: 46.803 },
+          to: { label: "Québec", lon: -71.203, lat: 46.812 },
+          depart: 960,
+          arrive: 972,
+          stopIds: ["a", "b"],
+          line: "",
+        },
+      ]),
+      "traversier",
+    );
   });
 
   it("stays empty on junk places and clocks", () => {
@@ -125,6 +191,8 @@ describe("walk bike road and train mixes", () => {
   it("drives shipped mix labels and a working-set access query", async () => {
     const kit = (await import(pathToFileURL(join(process.cwd(), "public", "Transit", "rive-kit.js")).href)) as {
       mixLabel: typeof mixLabel;
+      mixFamily: typeof mixFamily;
+      MIX_FAMILIES: typeof MIX_FAMILIES;
       roadMinutes: typeof roadMinutes;
       walkMinutes: typeof walkMinutes;
       bikeMinutes: (meters: number) => number;
@@ -133,12 +201,19 @@ describe("walk bike road and train mixes", () => {
     assert.equal(kit.mixLabel([{ kind: "transit", type: 2 }] as never), "train");
     assert.equal(kit.mixLabel([{ kind: "transit", type: 106 }] as never), "train");
     assert.equal(kit.mixLabel([{ kind: "transit", type: 700 }] as never), "bus");
+    assert.equal(kit.mixLabel([{ kind: "transit", type: 4 }] as never), "traversier");
+    assert.equal(kit.mixLabel([{ kind: "transit", type: 0 }] as never), "tram");
     assert.equal(kit.mixLabel([{ kind: "road" }] as never), "auto");
     assert.equal(kit.transitMixName(2), transitMixName(2));
     assert.equal(kit.transitMixName(106), "train");
-    for (const type of [0, 3, 700, 900, null]) {
-      assert.equal(kit.transitMixName(type), transitMixName(type));
-      assert.notEqual(kit.transitMixName(type), "train");
+    assert.equal(kit.transitMixName(4), "traversier");
+    assert.equal(kit.mixFamily({ legs: [{ kind: "transit", type: 4 }] }), "traversier");
+    assert.deepEqual(kit.MIX_FAMILIES, [...MIX_FAMILIES]);
+    for (const type of [0, 1, 2, 3, 4, 5, 6, 7, 11, 12, 100, 400, 700, 800, 900, 1000, 1200, 1300, 1400, null]) {
+      assert.equal(kit.transitMixName(type), transitMixName(type), `kit type ${String(type)}`);
+    }
+    for (const type of [0, 3, 4, 5, 6, 7, 11, 12, 400, 700, 800, 900, 1000, 1200, 1300, 1400, null]) {
+      assert.notEqual(kit.transitMixName(type), "train", `non-rail kit ${String(type)}`);
     }
     assert.equal(kit.walkMinutes(750), walkMinutes(750));
     assert.ok(kit.roadMinutes(5800) < kit.bikeMinutes(5800));

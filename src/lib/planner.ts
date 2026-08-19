@@ -12,6 +12,7 @@ import type { BikeStation } from "./bikeshare";
 import { bikeMinutes, nearbyStations } from "./bikeshare";
 import { haversineMeters, roadMinutes, walkMinutes } from "./geo";
 import { isFinitePoint, nearbyStops, placeFromStop } from "./search";
+import { MIX_FAMILIES, mixFamily } from "./mix-name";
 import { nextAfter } from "./time";
 
 function stopById(atlas: Atlas): Map<string, AtlasStop> {
@@ -522,17 +523,6 @@ export function planTrip(
   pool.sort((a, b) => a.minutes - b.minutes || a.arrive - b.arrive || a.walkMeters - b.walkMeters);
   const unique: Itinerary[] = [];
   const seen = new Set<string>();
-  const familyOf = (item: Itinerary) => {
-    if (item.legs.every((leg) => leg.kind === "walk")) return "marche";
-    if (item.legs.some((leg) => leg.kind === "bike") && !item.legs.some((leg) => leg.kind === "transit")) {
-      return "velo";
-    }
-    if (item.legs.some((leg) => leg.kind === "road")) return "auto";
-    if (item.legs.some((leg) => leg.kind === "transit" && "type" in leg && leg.type === 1)) return "metro";
-    if (item.legs.some((leg) => leg.kind === "transit" && "type" in leg && leg.type === 2)) return "train";
-    if (item.legs.some((leg) => leg.kind === "transit")) return "bus";
-    return "other";
-  };
   const signatureOf = (item: Itinerary) =>
     item.legs
       .map((leg) =>
@@ -556,9 +546,9 @@ export function planTrip(
     take(item);
     if (unique.length >= 6) break;
   }
-  for (const family of ["marche", "velo", "auto", "metro", "train", "bus"]) {
-    if (unique.some((item) => familyOf(item) === family)) continue;
-    const extra = pool.find((item) => familyOf(item) === family);
+  for (const family of MIX_FAMILIES) {
+    if (unique.some((item) => mixFamily(item) === family)) continue;
+    const extra = pool.find((item) => mixFamily(item) === family);
     if (extra) take(extra);
   }
   unique.sort((a, b) => a.minutes - b.minutes || a.arrive - b.arrive || a.walkMeters - b.walkMeters);

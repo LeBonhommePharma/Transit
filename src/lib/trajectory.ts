@@ -3,6 +3,9 @@ import type { BikeStation } from "./bikeshare";
 import { bikeMinutes } from "./bikeshare";
 import { walkMinutes } from "./geo";
 import { planTrip } from "./planner";
+import { transitMixName } from "./mix-name";
+
+export { MIX_FAMILIES, mixFamily, transitMixName } from "./mix-name";
 
 export type TrajectoryOption = {
   mix: string;
@@ -72,14 +75,6 @@ export function tripStrokeStyle(leg: unknown): { dash: number[]; color: string; 
   const tunnel = row.type === 1;
   const color = typeof row.color === "string" && row.color ? row.color : "#0b6bcb";
   return { dash: tunnel ? [6, 5] : [], color, width: tunnel ? 5 : 6 };
-}
-
-export function transitMixName(type: unknown): string {
-  const t = Number(type);
-  if (!Number.isFinite(t)) return "bus";
-  if (t === 1) return "métro";
-  if (t === 2 || (t >= 100 && t < 200)) return "train";
-  return "bus";
 }
 
 export function mixLabel(legs: TripLeg[]): string {
