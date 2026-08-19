@@ -462,6 +462,11 @@ export function walkMinutes(meters) {
   return Math.max(1, Math.round(meters / 75));
 }
 
+export function bikeMinutes(meters) {
+  if (!Number.isFinite(meters) || meters < 0) return 0;
+  return Math.max(1, Math.round(meters / 250));
+}
+
 export function roadMinutes(meters) {
   if (!Number.isFinite(meters) || meters < 0) return 0;
   return Math.max(1, Math.round(meters / 580));

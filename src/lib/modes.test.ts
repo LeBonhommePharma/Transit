@@ -126,6 +126,7 @@ describe("walk bike road and train mixes", () => {
       mixLabel: typeof mixLabel;
       roadMinutes: typeof roadMinutes;
       walkMinutes: typeof walkMinutes;
+      bikeMinutes: (meters: number) => number;
       transitMixName: typeof transitMixName;
     };
     assert.equal(kit.mixLabel([{ kind: "transit", type: 2 }] as never), "train");
@@ -139,7 +140,9 @@ describe("walk bike road and train mixes", () => {
       assert.notEqual(kit.transitMixName(type), "train");
     }
     assert.equal(kit.walkMinutes(750), walkMinutes(750));
-    assert.ok(kit.roadMinutes(5800) < kit.walkMinutes(5800));
+    assert.ok(kit.roadMinutes(5800) < kit.bikeMinutes(5800));
+    assert.ok(kit.bikeMinutes(5800) < kit.walkMinutes(5800));
+    assert.equal(kit.bikeMinutes(Number.NaN), 0);
     const shippedBuildings = (await import(pathToFileURL(join(process.cwd(), "public", "Transit", "buildings.js")).href)) as {
       overpassAccessQuery: typeof overpassAccessQuery;
       parseOverpassWays: typeof parseOverpassWays;
@@ -154,6 +157,7 @@ describe("walk bike road and train mixes", () => {
     assert.match(src, /mixLabel/);
     assert.match(src, /roadMinutes/);
     assert.match(src, /walkMinutes\(walkM\)/);
+    assert.match(src, /bikeMinutes\(walkM\)/);
     assert.match(src, /drawAccessWays/);
     assert.match(src, /kind === "road"/);
     assert.match(src, /navStepLabel/);

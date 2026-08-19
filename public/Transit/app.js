@@ -23,6 +23,7 @@ import {
   navStepLabel,
   parseClock24,
   rankByDoorToDoor,
+  bikeMinutes,
   roadMinutes,
   walkMinutes,
   snapToShape,
@@ -582,51 +583,53 @@ function planFromHere(from, destStop, now, active) {
     }
   }
   const walkM = haversineMeters(from, destStop);
-  if (walkM <= 2800) {
-    const walkMin = Math.max(1, Math.round(walkM / 75));
-    const bikeMin = Math.max(1, Math.round(walkM / 250));
-    found.push({
-      minutes: walkMin,
-      walkMeters: Math.round(walkM),
-      depart: now,
-      arrive: now + walkMin,
-      mix: "marche",
-      legs: [
-        {
-          kind: "walk",
-          minutes: walkMin,
-          meters: Math.round(walkM),
-          label: `Marche ${formatMeters(walkM)}`,
-          from: { lon: from.lon, lat: from.lat },
-          to: { lon: destStop.lon, lat: destStop.lat },
-          line: [
-            [from.lon, from.lat],
-            [destStop.lon, destStop.lat],
-          ],
-        },
-      ],
-    });
-    found.push({
-      minutes: bikeMin,
-      walkMeters: 0,
-      depart: now,
-      arrive: now + bikeMin,
-      mix: "vélo",
-      legs: [
-        {
-          kind: "bike",
-          minutes: bikeMin,
-          meters: Math.round(walkM),
-          label: `Vélo ${formatMeters(walkM)}`,
-          from: { lon: from.lon, lat: from.lat },
-          to: { lon: destStop.lon, lat: destStop.lat },
-          line: [
-            [from.lon, from.lat],
-            [destStop.lon, destStop.lat],
-          ],
-        },
-      ],
-    });
+  if (Number.isFinite(walkM) && walkM <= 2800) {
+    const walkMin = walkMinutes(walkM);
+    const bikeMin = bikeMinutes(walkM);
+    if (walkMin > 0) {
+      found.push({
+        minutes: walkMin,
+        walkMeters: Math.round(walkM),
+        depart: now,
+        arrive: now + walkMin,
+        mix: "marche",
+        legs: [
+          {
+            kind: "walk",
+            minutes: walkMin,
+            meters: Math.round(walkM),
+            label: `Marche ${formatMeters(walkM)}`,
+            from: { lon: from.lon, lat: from.lat },
+            to: { lon: destStop.lon, lat: destStop.lat },
+            line: [
+              [from.lon, from.lat],
+              [destStop.lon, destStop.lat],
+            ],
+          },
+        ],
+      });
+      found.push({
+        minutes: bikeMin,
+        walkMeters: 0,
+        depart: now,
+        arrive: now + bikeMin,
+        mix: "vélo",
+        legs: [
+          {
+            kind: "bike",
+            minutes: bikeMin,
+            meters: Math.round(walkM),
+            label: `Vélo ${formatMeters(walkM)}`,
+            from: { lon: from.lon, lat: from.lat },
+            to: { lon: destStop.lon, lat: destStop.lat },
+            line: [
+              [from.lon, from.lat],
+              [destStop.lon, destStop.lat],
+            ],
+          },
+        ],
+      });
+    }
   }
   if (Number.isFinite(walkM) && walkM >= 500 && walkM < 200000) {
     const roadMin = roadMinutes(walkM);
