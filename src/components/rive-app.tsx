@@ -275,7 +275,7 @@ export function RiveApp() {
   }
 
   return (
-    <div className="relative min-h-[100dvh] overflow-hidden bg-[#f5f5f7] text-[#1d1d1f]">
+    <div className="relative min-h-[100dvh] overflow-hidden bg-paper text-ink">
       <MapView
         city={city}
         atlas={atlas}
@@ -292,7 +292,7 @@ export function RiveApp() {
 
       <div className="pointer-events-none absolute inset-0 z-[2]">
         <div className="pointer-events-auto absolute left-[max(0.75rem,env(safe-area-inset-left))] right-[max(7.5rem,calc(env(safe-area-inset-right)+7.25rem))] top-[max(0.65rem,env(safe-area-inset-top))]">
-          <div className="glass flex max-w-full flex-wrap justify-start rounded-[22px] p-1 backdrop-blur-xl">
+          <div className="glass flex max-w-full flex-wrap justify-start rounded-[12px] p-1">
             {chips.map((item) => {
               const on = item.kind === "visit" ? visit?.id === item.id : item.city === city && !visit;
               return (
@@ -315,10 +315,10 @@ export function RiveApp() {
                     setDepartures([]);
                     setPlanError("");
                   }}
-                  className={`shrink-0 rounded-full px-3 py-2 text-sm tracking-tight min-h-11 transition-colors duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0e7490] ${
+                  className={`shrink-0 cursor-pointer rounded-[10px] px-3 py-2 text-[13px] font-semibold tracking-tight min-h-11 transition-colors duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sodium ${
                     on
-                      ? "bg-[#0e7490] text-[#f0fdff]"
-                      : "text-[#3f4d5c] hover:bg-black/5 hover:text-[#1a2430]"
+                      ? "bg-sodium text-[#f0fdfa]"
+                      : "text-muted hover:bg-black/5 hover:text-ink"
                   }`}
                 >
                   {item.label}
@@ -332,13 +332,13 @@ export function RiveApp() {
           onSubmit={onSearch}
           className="pointer-events-auto absolute left-4 top-36 w-[min(100%-2rem,380px)] md:left-6"
         >
-          <div className="glass rounded-[28px] p-3 backdrop-blur-xl">
+          <div className="glass rounded-[12px] p-4">
             <div className="flex items-center justify-between px-2 pb-2">
               <p className="text-[15px] font-medium tracking-tight">{tr("whereTo")}</p>
               <button
                 type="button"
                 onClick={locate}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/8 text-[#1d1d1f]/80"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/8 text-ink/80"
                 aria-label="Utiliser ma position"
               >
                 <Crosshair size={16} />
@@ -356,7 +356,7 @@ export function RiveApp() {
                 }}
                 onFocus={() => setActiveField("from")}
                 placeholder="De"
-                className="w-full bg-transparent text-sm text-[#1d1d1f] outline-none placeholder:text-black/35"
+                className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-black/35"
               />
             </label>
             <label className="flex items-center gap-2 rounded-2xl bg-black/25 px-3 py-2.5">
@@ -371,7 +371,7 @@ export function RiveApp() {
                 }}
                 onFocus={() => setActiveField("to")}
                 placeholder="Vers"
-                className="w-full bg-transparent text-sm text-[#1d1d1f] outline-none placeholder:text-black/35"
+                className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-black/35"
               />
               <button
                 type="submit"
@@ -400,7 +400,7 @@ export function RiveApp() {
                         }}
                         className="flex w-full items-center gap-3 px-2 py-2.5 text-left"
                       >
-                        <MapPin size={16} className="text-[#1d1d1f]/50" />
+                        <MapPin size={16} className="text-ink/50" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm">{hit.stop.name}</span>
                           {hit.stop.agencyId && (
@@ -434,7 +434,7 @@ export function RiveApp() {
                       >
                         <RouteBadge route={hit.route} />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm text-[#1d1d1f]/80">
+                          <span className="block truncate text-sm text-ink/80">
                             {hit.route.longName || hit.route.shortName}
                           </span>
                           {hit.route.agencyId && (
@@ -455,7 +455,7 @@ export function RiveApp() {
                     key={hint}
                     type="button"
                     onClick={() => void applyHint(hint, index === 0 ? "from" : "to")}
-                    className="rounded-full bg-white/8 px-3 py-1 text-xs text-[#1d1d1f]/75"
+                    className="rounded-full bg-white/8 px-3 py-1 text-xs text-ink/75"
                   >
                     {hint}
                   </button>
@@ -474,7 +474,7 @@ export function RiveApp() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={reduce ? undefined : { opacity: 0, y: 16 }}
                 transition={{ duration: 0.45, ease: [0.32, 0.72, 0, 1] }}
-                className="glass mb-3 rounded-[28px] p-5 backdrop-blur-xl"
+                className="glass mb-3 rounded-[12px] p-5"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -532,12 +532,12 @@ export function RiveApp() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={reduce ? undefined : { opacity: 0, y: 18 }}
                 transition={{ duration: 0.5, ease: [0.32, 0.72, 0, 1] }}
-                className="glass rounded-[28px] p-5 backdrop-blur-xl"
+                className="glass rounded-[12px] p-5"
               >
                 {planning && (
                   <p className="text-sm text-black/60">Lecture des horaires…</p>
                 )}
-                {planError && <p className="text-sm text-[#1d1d1f]">{planError}</p>}
+                {planError && <p className="text-sm text-ink">{planError}</p>}
                 {itineraries.map((item) => {
                   const on = item.id === (chosen ?? itineraries[0]?.id);
                   const transit = item.legs.find((leg) => leg.kind === "transit");
@@ -606,7 +606,7 @@ export function RiveApp() {
           </AnimatePresence>
 
           {selectedRoute && !selectedStop && itineraries.length === 0 && (
-            <section className="glass rounded-[28px] p-5 backdrop-blur-xl">
+            <section className="glass rounded-[12px] p-5">
               <div className="flex items-center gap-3">
                 <RouteBadge route={selectedRoute} />
                 <div>
@@ -635,7 +635,7 @@ export function RiveApp() {
       )}
       {loadError && (
         <div className="absolute inset-0 z-[3] flex items-center justify-center bg-ink p-6 text-center">
-          <p className="max-w-sm text-sm text-[#1d1d1f]">{loadError}</p>
+          <p className="max-w-sm text-sm text-ink">{loadError}</p>
         </div>
       )}
     </div>

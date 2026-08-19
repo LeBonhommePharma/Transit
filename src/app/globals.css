@@ -2,13 +2,13 @@
 @import "maplibre-gl/dist/maplibre-gl.css";
 
 :root {
-  --ink: #1c1917;
-  --ink-soft: #57534e;
-  --paper: #f7f6f3;
-  --muted: #57534e;
+  --ink: #1a2330;
+  --ink-soft: #475569;
+  --paper: #eef2f6;
+  --muted: #475569;
   --sodium: #0e7490;
-  --glass: rgb(251 250 247 / 0.94);
-  --hairline: rgb(28 25 23 / 0.10);
+  --glass: rgb(248 250 252 / 0.92);
+  --hairline: rgb(15 23 42 / 0.12);
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -16,6 +16,7 @@
   --color-ink: var(--ink);
   --color-paper: var(--paper);
   --color-sodium: var(--sodium);
+  --color-muted: var(--muted);
   --font-sans: "Outfit", "Outfit Fallback", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", "IBM Plex Mono Fallback", ui-monospace, monospace;
 }
@@ -36,7 +37,7 @@ body {
 }
 
 ::selection {
-  background: rgb(227 162 28 / 0.35);
+  background: rgb(14 116 144 / 0.28);
 }
 
 .rive-map .maplibregl-ctrl-bottom-left,
@@ -53,11 +54,12 @@ body {
   color: var(--ink);
   border: 1px solid var(--hairline);
   box-shadow: none;
+  backdrop-filter: blur(16px);
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .glass {
-    background: #f7f6f3;
+    background: #eef2f6;
     backdrop-filter: none;
   }
 }

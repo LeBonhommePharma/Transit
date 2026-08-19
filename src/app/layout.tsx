@@ -32,7 +32,7 @@ export default function RootLayout({
       lang="fr"
       className={`${outfit.variable} ${outfit.className} ${plex.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-[#f5f5f7] font-sans text-[#1d1d1f]">{children}</body>
+      <body className="min-h-full bg-paper font-sans text-ink">{children}</body>
     </html>
   );
 }
