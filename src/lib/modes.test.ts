@@ -83,6 +83,9 @@ describe("walk bike road and train mixes", () => {
     assert.equal(transitMixName(1), "métro");
     assert.equal(transitMixName(700), "bus");
     assert.equal(transitMixName("nope"), "bus");
+    for (const type of [0, 3, 4, 5, 7, 11, 12, 200, 400, 700, 900, null, undefined]) {
+      assert.notEqual(transitMixName(type), "train", `non-rail ${String(type)} must not mix as train`);
+    }
     const label = mixLabel([
       {
         kind: "transit",
@@ -131,6 +134,10 @@ describe("walk bike road and train mixes", () => {
     assert.equal(kit.mixLabel([{ kind: "road" }] as never), "auto");
     assert.equal(kit.transitMixName(2), transitMixName(2));
     assert.equal(kit.transitMixName(106), "train");
+    for (const type of [0, 3, 700, 900, null]) {
+      assert.equal(kit.transitMixName(type), transitMixName(type));
+      assert.notEqual(kit.transitMixName(type), "train");
+    }
     assert.equal(kit.walkMinutes(750), walkMinutes(750));
     assert.ok(kit.roadMinutes(5800) < kit.walkMinutes(5800));
     const shippedBuildings = (await import(pathToFileURL(join(process.cwd(), "public", "Transit", "buildings.js")).href)) as {
