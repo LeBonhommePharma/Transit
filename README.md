@@ -24,7 +24,7 @@ npm run ingest
 npm run dev
 ```
 
-`ingest` télécharge les zips officiels, les compacte, et écrit `public/data/quebec`, `public/data/montreal`, `public/data/sherbrooke` et `public/data/trois-rivieres`. Relance-le quand les agences publient une nouvelle grille.
+`ingest` lit `src/lib/registry.json`, télécharge les zips officiels, et écrit `public/data/<ville>`. `npm run ingest -- --city sherbrooke` ne reconstruit qu'une ville. Relance-le quand les agences publient une nouvelle grille. Un flux dont le calendrier est déjà fini est refusé.
 
 ## Ce qui est lié
 

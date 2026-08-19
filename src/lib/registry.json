@@ -99,7 +99,7 @@
       "gtfs": [
         {
           "agency": "STTR",
-          "url": "https://www.donneesquebec.ca/recherche/dataset/a2d3c9de-4045-41e3-b2ea-5bb64bd8c50f/resource/71d94f75-5a36-4789-b581-a21d49dcd5f5/download/sttr_ete26.zip",
+          "url": "https://sttr.qc.ca/app/uploads/2026/08/sttr_aut26.zip",
           "attribution": "Horaires et parcours STTR Trois-Rivières, données ouvertes.",
           "slug": "sttr",
           "zip": "sttr.zip",

@@ -29,6 +29,7 @@ import {
   regionsFromCatalog,
   selectRegions,
 } from "./gtfs-catalog.mjs";
+import { assertCoverageIncludesToday } from "./gtfs-coverage.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CACHE = join(ROOT, ".cache", "gtfs");
@@ -43,7 +44,6 @@ const MAX_STREAM_ROWS = 10_000_000;
 const MAX_SYNC_ROWS = 1_000_000;
 const MAX_SHAPE_POINTS_PER_LINE = 10_000;
 const REGISTRY_PATH = join(ROOT, "src", "lib", "registry.json");
-const COVERAGE_PATH = join(ROOT, "scripts", "gtfs-coverage.mjs");
 
 function prefixed(prefix, id) {
   if (!id) return id;
@@ -582,6 +582,12 @@ async function ingestFeed(region, feed, force) {
       sec: Number(row.min_transfer_time || 0),
     }));
 
+  const calendarStarts = calendar.map((row) => row.start).filter(Boolean).sort();
+  const calendarEnds = calendar.map((row) => row.end).filter(Boolean).sort();
+  const exceptionDates = exceptions.map((row) => row.date).filter(Boolean).sort();
+  const derivedStart = [calendarStarts[0], exceptionDates[0]].filter(Boolean).sort()[0] || "";
+  const derivedEnd = [calendarEnds.at(-1), exceptionDates.at(-1)].filter(Boolean).sort().at(-1) || "";
+
   const meta = {
     city: region.city,
     name: region.name,
@@ -591,9 +597,9 @@ async function ingestFeed(region, feed, force) {
     timezone: agency.agency_timezone || "America/Montreal",
     lang: agency.agency_lang || "fr",
     phone: agency.agency_phone || "",
-    updated: feedInfo.feed_start_date || "",
-    start: feedInfo.feed_start_date || "",
-    end: feedInfo.feed_end_date || "",
+    updated: feedInfo.feed_start_date || derivedStart,
+    start: feedInfo.feed_start_date || derivedStart,
+    end: feedInfo.feed_end_date || derivedEnd,
     version: feedInfo.feed_version || "",
     attribution: feed.attribution,
     licenseUrl: feed.licenseUrl,
@@ -697,44 +703,7 @@ function writeJson(path, data) {
   console.log(`  ${path.replace(ROOT + "/", "")}  ${mb} MB`);
 }
 
-function montrealYyyymmdd(date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Montreal",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-  const y = parts.find((p) => p.type === "year")?.value;
-  const m = parts.find((p) => p.type === "month")?.value;
-  const d = parts.find((p) => p.type === "day")?.value;
-  return `${y}${m}${d}`;
-}
-
-function assertCoverageIncludesToday(merged, now = new Date()) {
-  const today = montrealYyyymmdd(now);
-  let maxDate = "";
-  for (const row of merged.calendar || []) {
-    if (typeof row?.end === "string" && row.end > maxDate) maxDate = row.end;
-  }
-  for (const row of merged.exceptions || []) {
-    if (typeof row?.date === "string" && row.date > maxDate) maxDate = row.date;
-  }
-  if (!maxDate || maxDate < today) {
-    const city = merged.meta?.city || "unknown";
-    throw new Error(
-      `GTFS coverage for ${city} ends on ${maxDate || "none"}, which is before today ${today} (America/Montreal)`,
-    );
-  }
-}
-
 async function runCoverageAssert(merged) {
-  if (existsSync(COVERAGE_PATH)) {
-    const coverage = await import(pathToFileURL(COVERAGE_PATH).href);
-    if (typeof coverage.assertCoverageIncludesToday === "function") {
-      coverage.assertCoverageIncludesToday(merged);
-      return;
-    }
-  }
   assertCoverageIncludesToday(merged);
 }
 
