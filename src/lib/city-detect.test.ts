@@ -29,10 +29,14 @@ describe("city auto-detect", () => {
     const centers = supportedCityCenters();
     assert.equal(shipped.cityForPoint(centers.montreal.lon, centers.montreal.lat, centers), "montreal");
     assert.equal(shipped.cityForPoint(centers.sherbrooke.lon, centers.sherbrooke.lat), "sherbrooke");
+    assert.equal(shipped.cityForPoint(centers["trois-rivieres"].lon, centers["trois-rivieres"].lat), "trois-rivieres");
     assert.equal(shipped.cityForPoint(0, 0, centers), null);
+    assert.equal(shipped.cityForPoint(-75.7, 45.42), null);
     const html = readFileSync(join(process.cwd(), "public", "Transit", "index.html"), "utf8");
     assert.match(html, /data-city="quebec"/);
     assert.match(html, /data-city="montreal"/);
+    assert.match(html, /data-city="sherbrooke"/);
+    assert.match(html, /data-city="trois-rivieres"/);
     const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
     assert.match(src, /detectCity/);
     assert.match(src, /if \(city && city !== state\.city\)/);

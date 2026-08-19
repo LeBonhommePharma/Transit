@@ -6,7 +6,7 @@ import { describe, it } from "node:test";
 import type { Atlas, Place, Timetable } from "./atlas/types";
 import { overpassAccessQuery, parseOverpassWays } from "./buildings";
 import { daytimeClock } from "./clock";
-import { roadMinutes, walkMinutes } from "./geo";
+import { haversineMeters, roadMinutes, walkMinutes } from "./geo";
 import { planTrip } from "./planner";
 import { firstStopFromQuery, placeFromStop, searchAtlas } from "./search";
 import { activeServiceIndexes } from "./services";
@@ -54,12 +54,22 @@ describe("walk bike road and train mixes", () => {
         short.some((row) => row.legs.some((leg) => leg.kind === "bike")),
         `${city} bike stations must yield a bike mix`,
       );
+      const meters = haversineMeters(from, longTo);
+      const planned = planTrip(atlas, timetable, from, longTo, at, activeServiceIndexes(atlas, clock), [
+        { id: "s", name: "s", lon: from.lon, lat: from.lat, bikes: 4, docks: 4, system: city === "quebec" ? ("avelo" as const) : ("bixi" as const) },
+        { id: "e", name: "e", lon: longTo.lon, lat: longTo.lat, bikes: 2, docks: 6, system: city === "quebec" ? ("avelo" as const) : ("bixi" as const) },
+      ]);
+      const roadItin = planned.find((row) => row.legs.some((leg) => leg.kind === "road"));
+      assert.ok(roadItin, `${city} planner must emit an auto leg`);
+      assert.equal(roadItin.minutes, roadMinutes(meters));
+      assert.notEqual(roadItin.minutes, walkMinutes(meters));
       const long = planTrajectories(atlas, timetable, from, longTo, at, activeServiceIndexes(atlas, clock), [
         { id: "s", name: "s", lon: from.lon, lat: from.lat, bikes: 4, docks: 4, system: city === "quebec" ? "avelo" : "bixi" },
         { id: "e", name: "e", lon: longTo.lon, lat: longTo.lat, bikes: 2, docks: 6, system: city === "quebec" ? "avelo" : "bixi" },
       ]);
       const road = long.find((row) => row.mix === "auto" || row.itinerary.legs.some((leg) => leg.kind === "road"));
       assert.ok(road, `${city} longer pair must yield a road-vehicle option`);
+      assert.equal(road.minutes, roadItin.minutes);
       const walkClone = long.find((row) => row.mix === "marche");
       if (walkClone) assert.notEqual(road.minutes, walkClone.minutes);
       assert.ok(road.minutes > 0 && Number.isFinite(road.minutes));
@@ -69,7 +79,10 @@ describe("walk bike road and train mixes", () => {
 
   it("names GTFS type 2 as train, not bus", () => {
     assert.equal(transitMixName(2), "train");
+    assert.equal(transitMixName(106), "train");
     assert.equal(transitMixName(1), "métro");
+    assert.equal(transitMixName(700), "bus");
+    assert.equal(transitMixName("nope"), "bus");
     const label = mixLabel([
       {
         kind: "transit",
@@ -109,19 +122,31 @@ describe("walk bike road and train mixes", () => {
     const kit = (await import(pathToFileURL(join(process.cwd(), "public", "Transit", "rive-kit.js")).href)) as {
       mixLabel: typeof mixLabel;
       roadMinutes: typeof roadMinutes;
+      walkMinutes: typeof walkMinutes;
+      transitMixName: typeof transitMixName;
     };
     assert.equal(kit.mixLabel([{ kind: "transit", type: 2 }] as never), "train");
+    assert.equal(kit.mixLabel([{ kind: "transit", type: 106 }] as never), "train");
+    assert.equal(kit.mixLabel([{ kind: "transit", type: 700 }] as never), "bus");
     assert.equal(kit.mixLabel([{ kind: "road" }] as never), "auto");
-    assert.ok(kit.roadMinutes(5800) < kit.roadMinutes(5800) + 1);
-    assert.ok(kit.roadMinutes(5800) !== walkMinutes(5800));
-    const q = overpassAccessQuery({ lat: 46.8131, lon: -71.2082 }, 700, 64);
+    assert.equal(kit.transitMixName(2), transitMixName(2));
+    assert.equal(kit.transitMixName(106), "train");
+    assert.equal(kit.walkMinutes(750), walkMinutes(750));
+    assert.ok(kit.roadMinutes(5800) < kit.walkMinutes(5800));
+    const shippedBuildings = (await import(pathToFileURL(join(process.cwd(), "public", "Transit", "buildings.js")).href)) as {
+      overpassAccessQuery: typeof overpassAccessQuery;
+      parseOverpassWays: typeof parseOverpassWays;
+    };
+    const q = shippedBuildings.overpassAccessQuery({ lat: 46.8131, lon: -71.2082 }, 700, 64);
     assert.match(q, /cycleway\|path\|footway/);
     assert.match(q, /motorway\|trunk\|primary/);
     assert.match(q, /around:/);
+    assert.deepEqual(shippedBuildings.parseOverpassWays(null), []);
     assert.deepEqual(parseOverpassWays(null), []);
     const src = readFileSync(join(process.cwd(), "public", "Transit", "app.js"), "utf8");
     assert.match(src, /mixLabel/);
     assert.match(src, /roadMinutes/);
+    assert.match(src, /walkMinutes\(walkM\)/);
     assert.match(src, /drawAccessWays/);
     assert.match(src, /kind === "road"/);
     assert.match(src, /navStepLabel/);

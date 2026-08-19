@@ -24,6 +24,7 @@ import {
   parseClock24,
   rankByDoorToDoor,
   roadMinutes,
+  walkMinutes,
   snapToShape,
   cityForPoint,
   escapeHtml,
@@ -629,7 +630,7 @@ function planFromHere(from, destStop, now, active) {
   }
   if (Number.isFinite(walkM) && walkM >= 500 && walkM < 200000) {
     const roadMin = roadMinutes(walkM);
-    const walkMin = Math.max(1, Math.round(walkM / 75));
+    const walkMin = walkMinutes(walkM);
     if (roadMin > 0 && roadMin !== walkMin) {
       found.push({
         minutes: roadMin,

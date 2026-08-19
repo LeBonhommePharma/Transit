@@ -457,6 +457,11 @@ export function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+export function walkMinutes(meters) {
+  if (!Number.isFinite(meters) || meters < 0) return 0;
+  return Math.max(1, Math.round(meters / 75));
+}
+
 export function roadMinutes(meters) {
   if (!Number.isFinite(meters) || meters < 0) return 0;
   return Math.max(1, Math.round(meters / 580));
@@ -485,8 +490,10 @@ export function cityForPoint(lon, lat, centers, maxMeters) {
 }
 
 export function transitMixName(type) {
-  if (type === 1) return "métro";
-  if (type === 2) return "train";
+  const t = Number(type);
+  if (!Number.isFinite(t)) return "bus";
+  if (t === 1) return "métro";
+  if (t === 2 || (t >= 100 && t < 200)) return "train";
   return "bus";
 }
 

@@ -75,8 +75,10 @@ export function tripStrokeStyle(leg: unknown): { dash: number[]; color: string; 
 }
 
 export function transitMixName(type: unknown): string {
-  if (type === 1) return "métro";
-  if (type === 2) return "train";
+  const t = Number(type);
+  if (!Number.isFinite(t)) return "bus";
+  if (t === 1) return "métro";
+  if (t === 2 || (t >= 100 && t < 200)) return "train";
   return "bus";
 }
 
