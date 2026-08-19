@@ -11,7 +11,7 @@ import { daytimeClock } from "./clock";
 import { decodePolyline } from "./geo";
 import { firstStopFromQuery, placeFromStop, searchAtlas } from "./search";
 
-function loadAtlas(city: "quebec" | "montreal"): Atlas {
+function loadAtlas(city: string): Atlas {
   return JSON.parse(
     readFileSync(join(process.cwd(), "public", "data", city, "atlas.json"), "utf8"),
   ) as Atlas;
@@ -30,6 +30,22 @@ describe("HTTP search / departures / plan handlers", () => {
     assert.equal(status, 400);
     assert.equal(typeof body.error, "string");
     assert.ok(String(body.error).length > 0);
+  });
+
+  it("accepts every shipped index city on search", async () => {
+    const index = JSON.parse(readFileSync(join(process.cwd(), "public", "data", "index.json"), "utf8")) as {
+      cities?: Array<{ city?: unknown }>;
+    };
+    const cities = Array.isArray(index.cities)
+      ? index.cities.map((row) => row.city).filter((city): city is string => typeof city === "string")
+      : [];
+    assert.ok(cities.length > 0, "public/data/index.json cities[] is empty");
+    for (const city of cities) {
+      const res = await searchGet(new Request(`http://rive.test/api/search?city=${encodeURIComponent(city)}&q=a`));
+      const { status, body } = await readJson(res);
+      assert.equal(status, 200, `${city} search must not be an unknown city`);
+      assert.ok(Array.isArray(body.hits), `${city} search hits`);
+    }
   });
 
   it("rejects departures with missing stop and query", async () => {

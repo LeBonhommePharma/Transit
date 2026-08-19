@@ -370,7 +370,15 @@ describe("bikeshare GBFS", () => {
 });
 
 describe("atlas joins", () => {
-  for (const city of ["quebec", "montreal"] as const) {
+  const cities = (
+    JSON.parse(readFileSync(join(process.cwd(), "public", "data", "index.json"), "utf8")) as {
+      cities?: Array<{ city?: unknown }>;
+    }
+  ).cities
+    ?.map((row) => row.city)
+    .filter((city): city is string => typeof city === "string") ?? [];
+
+  for (const city of cities) {
     it(`${city} timetable keys and route ids resolve on the atlas`, () => {
       const { atlas, timetable } = loadCity(city);
       const stopIds = new Set(atlas.stops.map((stop) => stop.id));
