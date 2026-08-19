@@ -295,6 +295,18 @@ export function cityForPoint(
   return best;
 }
 
+/** Chip/`?city=` lock wins over a here-sample in another served region. */
+export function cityAfterHereSample(input: {
+  explicitCity?: unknown;
+  detectedCity?: unknown;
+  locked?: unknown;
+}): string | null {
+  const explicit = typeof input?.explicitCity === "string" && input.explicitCity ? input.explicitCity : null;
+  const detected = typeof input?.detectedCity === "string" && input.detectedCity ? input.detectedCity : null;
+  if (input?.locked && explicit) return explicit;
+  return detected || explicit;
+}
+
 export function isFinitePoint(point: { lon?: unknown; lat?: unknown } | null | undefined): point is {
   lon: number;
   lat: number;
