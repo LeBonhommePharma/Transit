@@ -47,7 +47,7 @@ import {
 } from "./realtime";
 import { fingerprintFromMeta, shouldFetchZip } from "./update";
 
-function loadCity(city: "quebec" | "montreal"): { atlas: Atlas; timetable: Timetable } {
+function loadCity(city: string): { atlas: Atlas; timetable: Timetable } {
   const root = join(process.cwd(), "public", "data", city);
   return {
     atlas: JSON.parse(readFileSync(join(root, "atlas.json"), "utf8")) as Atlas,
@@ -258,6 +258,9 @@ describe("locale and query assist", () => {
     assert.match(intent.query, /Youville/i);
     assert.equal(parseTransitQuery("horaire Traverse Levis").city, "quebec");
     assert.equal(parseTransitQuery("horaire Montmorency stlaval").city, "montreal");
+    assert.equal(parseTransitQuery("horaire Terminus Longueuil").city, "montreal");
+    assert.equal(parseTransitQuery("horaire Universite de Sherbrooke").city, "sherbrooke");
+    assert.equal(parseTransitQuery("horaire Terminus UQTR Trois-Rivieres").city, "trois-rivieres");
   });
 
   it("swallows non-string and empty assist input", () => {
@@ -919,15 +922,18 @@ describe("planTrip", () => {
     }
   });
 
-  it("merges STLévis and STL Laval into the regional atlases", () => {
+  it("merges STLévis, STL Laval and RTL Longueuil into the regional atlases", () => {
     const quebec = loadCity("quebec");
     const montreal = loadCity("montreal");
     const stlevisRoutes = quebec.atlas.routes.filter((route) => route.agencyId === "STLévis");
     const stlRoutes = montreal.atlas.routes.filter((route) => route.agencyId === "STL");
+    const rtlRoutes = montreal.atlas.routes.filter((route) => route.agencyId === "RTL");
     assert.ok(stlevisRoutes.length > 0);
     assert.ok(stlRoutes.length > 0);
+    assert.ok(rtlRoutes.length > 0);
     assert.ok(stlevisRoutes.every((route) => route.id.startsWith("stlevis:")));
     assert.ok(stlRoutes.every((route) => route.id.startsWith("stl:")));
+    assert.ok(rtlRoutes.every((route) => route.id.startsWith("rtl:")));
     assert.ok(
       stlevisRoutes.some((route) => route.dirs.some((dir) => dir.stops.length > 3)),
       "STLévis routes must keep their stop sequences",
@@ -936,15 +942,23 @@ describe("planTrip", () => {
       stlRoutes.some((route) => route.dirs.some((dir) => dir.stops.length > 3)),
       "STL routes must keep their stop sequences",
     );
+    assert.ok(
+      rtlRoutes.some((route) => route.dirs.some((dir) => dir.stops.length > 3)),
+      "RTL routes must keep their stop sequences",
+    );
     assert.ok(quebec.atlas.meta.agencies?.some((agency) => agency.id === "STLévis"));
     assert.ok(montreal.atlas.meta.agencies?.some((agency) => agency.id === "STL"));
+    assert.ok(montreal.atlas.meta.agencies?.some((agency) => agency.id === "RTL"));
 
     const traverse = firstStopFromQuery(quebec.atlas, "Terminus de la Traverse");
     const montmorency = firstStopFromQuery(montreal.atlas, "Terminus Montmorency");
+    const longueuil = firstStopFromQuery(montreal.atlas, "Terminus Longueuil");
     assert.ok(traverse);
     assert.equal(traverse.agencyId, "STLévis");
     assert.ok(montmorency);
     assert.equal(montmorency.agencyId, "STL");
+    assert.ok(longueuil);
+    assert.equal(longueuil.agencyId, "RTL");
   });
 
   it("plans a STLévis ride from Cégep de Lévis to the Traverse", () => {
@@ -960,6 +974,33 @@ describe("planTrip", () => {
       activeServiceIndexes(atlas, clock),
     );
     assert.ok(itineraries.some((item) => item.legs.some((leg) => leg.kind === "transit" && leg.agencyId === "STLévis")));
+  });
+
+  it("plans a Sherbrooke ride from the Cégep to the university", () => {
+    const { atlas, timetable } = loadCity("sherbrooke");
+    const from = placeFromStop(firstStopHit(atlas, "Station du Cegep"));
+    const to = placeFromStop(firstStopHit(atlas, "Universite de Sherbrooke"));
+    const itineraries = planTrip(
+      atlas,
+      timetable,
+      from,
+      to,
+      minutesOfDay(clock),
+      activeServiceIndexes(atlas, clock),
+    );
+    assert.ok(itineraries.some((item) => item.legs.some((leg) => leg.kind === "transit" && leg.agencyId === "STS")));
+  });
+
+  it("keeps the STTR atlas with official Trois-Rivières termini", () => {
+    const { atlas } = loadCity("trois-rivieres");
+    assert.ok(atlas.routes.some((route) => route.agencyId === "STTR"));
+    assert.equal(atlas.meta.agencyId, "STTR");
+    const centre = firstStopFromQuery(atlas, "Terminus Centre-ville");
+    const uqtr = firstStopFromQuery(atlas, "Terminus UQTR");
+    assert.ok(centre);
+    assert.equal(centre.agencyId, "STTR");
+    assert.ok(uqtr);
+    assert.equal(uqtr.agencyId, "STTR");
   });
 
   it("plans an STL ride from Carrefour Laval to Terminus Montmorency", () => {

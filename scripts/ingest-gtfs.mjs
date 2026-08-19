@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Build a compact linked atlas from official GTFS.
- * Québec = RTC + STLévis. Montréal = STM + STL Laval.
+ * Québec = RTC + STLévis. Montréal = STM + STL Laval + RTL Longueuil.
+ * Sherbrooke = STS. Trois-Rivières = STTR.
  *
  * Secondary feeds prefix every GTFS id so route 11 (RTC) and route 11
  * (STLévis) never collide. Primary feed ids stay unprefixed.
@@ -87,6 +88,49 @@ const REGIONS = [
         licenseUrl: "https://stlaval.ca/affaires/donnees-ouvertes",
         agencyHint: "STL",
         prefix: "stl:",
+      },
+      {
+        slug: "rtl",
+        zip: "rtl.zip",
+        url: "https://www.rtl-longueuil.qc.ca/transit/latestfeed/RTL.zip",
+        attribution: "Horaires et parcours RTL Longueuil, données ouvertes.",
+        licenseUrl: "https://www.rtl-longueuil.qc.ca/donnees-ouvertes",
+        agencyHint: "RTL",
+        prefix: "rtl:",
+      },
+    ],
+  },
+  {
+    city: "sherbrooke",
+    name: "Sherbrooke",
+    center: [-71.8908, 45.4042],
+    zoom: 12.6,
+    feeds: [
+      {
+        slug: "sts",
+        zip: "sts.zip",
+        url: "https://gtfs.sts.qc.ca:8443/gtfs/client/GTFS_clients.zip",
+        attribution: "Horaires et parcours STS Sherbrooke, données ouvertes.",
+        licenseUrl: "https://www.sts.qc.ca/a-propos/la-sts/donnees-ouvertes/",
+        agencyHint: "STS",
+        prefix: "",
+      },
+    ],
+  },
+  {
+    city: "trois-rivieres",
+    name: "Trois-Rivières",
+    center: [-72.5415, 46.3432],
+    zoom: 12.8,
+    feeds: [
+      {
+        slug: "sttr",
+        zip: "sttr.zip",
+        url: "https://www.donneesquebec.ca/recherche/dataset/a2d3c9de-4045-41e3-b2ea-5bb64bd8c50f/resource/71d94f75-5a36-4789-b581-a21d49dcd5f5/download/sttr_ete26.zip",
+        attribution: "Horaires et parcours STTR Trois-Rivières, données ouvertes.",
+        licenseUrl: "https://www.donneesquebec.ca/recherche/dataset/gtsf",
+        agencyHint: "STTR",
+        prefix: "",
       },
     ],
   },

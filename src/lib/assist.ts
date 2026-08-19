@@ -30,8 +30,10 @@ declare global {
  * injects `window.riveFoundationAssist`. Shortest-path math stays GTFS.
  */
 const DEFAULT_CITY_HINTS: CityHint[] = [
-  { id: "montreal", name: "Montréal", aliases: ["mtl", "stlaval", "stl laval"] },
+  { id: "montreal", name: "Montréal", aliases: ["mtl", "stlaval", "stl laval", "longueuil", "rtl longueuil"] },
   { id: "quebec", name: "Québec", aliases: ["quebec city", "ville de quebec", "levis", "stlevis"] },
+  { id: "sherbrooke", name: "Sherbrooke", aliases: ["sts sherbrooke"] },
+  { id: "trois-rivieres", name: "Trois-Rivières", aliases: ["trois rivieres", "sttr"] },
 ];
 
 export function parseTransitQuery(text: string, cities: CityHint[] = DEFAULT_CITY_HINTS): TransitIntent {

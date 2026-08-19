@@ -193,7 +193,7 @@ function searchMatchScore(query, queryTokens, fields) {
   }
   if (!matched) return 0;
   const coverage = matched / queryTokens.length;
-  if (coverage < 0.5) return 0;
+  if (coverage < (queryTokens.length <= 2 ? 1 : 0.5)) return 0;
   const base = exact ? 100 : starts ? 84 : coverage === 1 ? 72 : 42 + coverage * 24;
   return base + (similarity / matched) * 26 - (queryTokens.length - matched) * 6;
 }

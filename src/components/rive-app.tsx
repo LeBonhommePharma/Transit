@@ -50,6 +50,8 @@ type Departure = {
 const FALLBACK_CITIES: Array<{ id: CityId; label: string; hints: [string, string] }> = [
   { id: "quebec", label: "Québec", hints: ["Place D'Youville", "Terminus de la Traverse"] },
   { id: "montreal", label: "Montréal", hints: ["Berri-UQAM", "Terminus Montmorency"] },
+  { id: "sherbrooke", label: "Sherbrooke", hints: ["Université de Sherbrooke", "Station du Cégep"] },
+  { id: "trois-rivieres", label: "Trois-Rivières", hints: ["Terminus Centre-ville", "Terminus UQTR"] },
 ];
 
 function modeIcon(type: number, className: string) {
@@ -283,8 +285,8 @@ export function RiveApp() {
       />
 
       <div className="pointer-events-none absolute inset-0 z-[2]">
-        <div className="pointer-events-auto mx-auto flex w-max pt-4">
-          <div className="glass flex rounded-full p-1 backdrop-blur-xl">
+        <div className="pointer-events-auto mx-auto flex w-max max-w-[calc(100%-24px)] flex-wrap justify-center pt-4">
+          <div className="glass flex max-w-full flex-wrap justify-center rounded-[22px] p-1 backdrop-blur-xl">
             {cities.map((item) => {
               const on = item.id === city;
               return (
@@ -306,7 +308,7 @@ export function RiveApp() {
                     setDepartures([]);
                     setPlanError("");
                   }}
-                  className={`rounded-full px-5 py-2 text-sm tracking-tight transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${
+                  className={`rounded-full px-3 py-2 text-sm tracking-tight transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${
                     on
                       ? "bg-[#1d1d1f] text-white"
                       : "text-black/50 hover:text-black"
@@ -321,7 +323,7 @@ export function RiveApp() {
 
         <form
           onSubmit={onSearch}
-          className="pointer-events-auto absolute left-4 top-20 w-[min(100%-2rem,380px)] md:left-6"
+          className="pointer-events-auto absolute left-4 top-28 w-[min(100%-2rem,380px)] md:left-6"
         >
           <div className="glass rounded-[28px] p-3 backdrop-blur-xl">
             <div className="flex items-center justify-between px-2 pb-2">

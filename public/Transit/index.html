@@ -87,13 +87,13 @@
       }
       #ui { position: relative; z-index: 2; pointer-events: none; min-height: 100dvh; }
       #ui > * { pointer-events: auto; }
-      .cities { display: flex; width: max-content; margin: 16px auto 0; padding: 4px; border-radius: 999px; background: var(--glass); border: 1px solid rgb(0 0 0 / 0.08); }
-      .cities button { border: 0; background: transparent; color: #6e6e73; padding: 8px 18px; border-radius: 999px; font: inherit; cursor: pointer; }
+      .cities { display: flex; flex-wrap: wrap; justify-content: center; width: max-content; max-width: calc(100% - 24px); margin: 16px auto 0; padding: 4px; border-radius: 22px; background: var(--glass); border: 1px solid rgb(0 0 0 / 0.08); }
+      .cities button { border: 0; background: transparent; color: #6e6e73; padding: 8px 12px; border-radius: 999px; font: inherit; cursor: pointer; }
       .cities button.on { background: var(--chip); color: var(--chip-ink); }
       .sheet {
         position: absolute;
         left: 16px;
-        top: 68px;
+        top: 108px;
         width: min(400px, calc(100% - 32px));
         background: var(--glass);
         border: 1px solid rgb(0 0 0 / 0.08);
@@ -330,6 +330,8 @@
       <div class="cities" role="tablist">
         <button type="button" id="btn-quebec" data-city="quebec" class="on">Québec</button>
         <button type="button" id="btn-montreal" data-city="montreal">Montréal</button>
+        <button type="button" id="btn-sherbrooke" data-city="sherbrooke">Sherbrooke</button>
+        <button type="button" id="btn-trois-rivieres" data-city="trois-rivieres">Trois-Rivières</button>
       </div>
       <section class="sheet" id="sheet">
         <div class="toolbar" role="toolbar" aria-label="Outils">

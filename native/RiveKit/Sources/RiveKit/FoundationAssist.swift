@@ -11,7 +11,7 @@ public enum FoundationAssist {
     let folded = text.lowercased()
     var city: String?
     if folded.contains("montréal") || folded.contains("montreal") || folded.contains("mtl")
-      || folded.contains("stlaval")
+      || folded.contains("stlaval") || folded.contains("longueuil")
     {
       city = "montreal"
     }
@@ -19,6 +19,12 @@ public enum FoundationAssist {
       || folded.contains("lévis") || folded.contains("stlevis")
     {
       city = "quebec"
+    }
+    if folded.contains("sherbrooke") {
+      city = "sherbrooke"
+    }
+    if folded.contains("trois-rivi") || folded.contains("trois rivi") || folded.contains("sttr") {
+      city = "trois-rivieres"
     }
     let kind =
       folded.contains("vers")
@@ -42,9 +48,9 @@ public enum FoundationAssist {
     do {
       let session = LanguageModelSession(
         instructions: """
-          You extract a public-transit lookup for Québec (RTC, STLévis) or Montréal (STM, STL Laval).
+          You extract a public-transit lookup for Québec (RTC, STLévis), Montréal (STM, STL Laval, RTL Longueuil), Sherbrooke (STS), or Trois-Rivières (STTR).
           Reply with one line: city|kind|query
-          city is quebec or montreal or -
+          city is quebec, montreal, sherbrooke, trois-rivieres, or -
           kind is schedule or plan
           query is the stop or place. Never invent times. Never compute a path.
           """
@@ -74,6 +80,8 @@ public enum FoundationAssist {
     let city: String?
     if cityRaw == "quebec" || cityRaw == "québec" { city = "quebec" }
     else if cityRaw == "montreal" || cityRaw == "montréal" || cityRaw == "mtl" { city = "montreal" }
+    else if cityRaw == "sherbrooke" { city = "sherbrooke" }
+    else if cityRaw == "trois-rivieres" || cityRaw == "trois-rivières" { city = "trois-rivieres" }
     else { city = nil }
     let kind = (kindRaw == "plan") ? "plan" : "schedule"
     return TransitIntent(city: city, stopQuery: query, kind: kind)

@@ -40,12 +40,45 @@
           "agency": "STL",
           "url": "https://stlaval.ca/datas/opendata/GTF_STL.zip",
           "attribution": "Horaires et parcours STL Laval, données ouvertes."
+        },
+        {
+          "agency": "RTL",
+          "url": "https://www.rtl-longueuil.qc.ca/transit/latestfeed/RTL.zip",
+          "attribution": "Horaires et parcours RTL Longueuil, données ouvertes."
         }
       ],
       "bikes": {
         "label": "BIXI",
         "gbfs": "https://gbfs.velobixi.com/gbfs/gbfs.json"
       }
+    },
+    {
+      "id": "sherbrooke",
+      "name": "Sherbrooke",
+      "timezone": "America/Montreal",
+      "center": [-71.8908, 45.4042],
+      "zoom": 12.6,
+      "gtfs": [
+        {
+          "agency": "STS",
+          "url": "https://gtfs.sts.qc.ca:8443/gtfs/client/GTFS_clients.zip",
+          "attribution": "Horaires et parcours STS Sherbrooke, données ouvertes."
+        }
+      ]
+    },
+    {
+      "id": "trois-rivieres",
+      "name": "Trois-Rivières",
+      "timezone": "America/Montreal",
+      "center": [-72.5415, 46.3432],
+      "zoom": 12.8,
+      "gtfs": [
+        {
+          "agency": "STTR",
+          "url": "https://www.donneesquebec.ca/recherche/dataset/a2d3c9de-4045-41e3-b2ea-5bb64bd8c50f/resource/71d94f75-5a36-4789-b581-a21d49dcd5f5/download/sttr_ete26.zip",
+          "attribution": "Horaires et parcours STTR Trois-Rivières, données ouvertes."
+        }
+      ]
     }
   ]
 }
