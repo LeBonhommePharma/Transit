@@ -52,7 +52,11 @@ jobs:
         id: build
         run: |
           set -euo pipefail
-          sha=$(git rev-parse HEAD)
+          # Match the apex engine: stamp the last commit that touched the
+          # published surface, so the gate builds the same artifact it will.
+          sha=$(git log -1 --format=%H -- \
+                  public/Transit public/data public/l10n public/favicon.svg)
+          [ -n "$sha" ] || sha=$(git rev-parse HEAD)
           node scripts/publish-transit.mjs compose --src . --out _stage --sha "$sha"
           node scripts/publish-transit.mjs verify-artifact --dir _stage --sha "$sha" | tee _gate.txt
           echo "sha256=$(grep '^index-sha256=' _gate.txt | cut -d= -f2)" >> "$GITHUB_OUTPUT"

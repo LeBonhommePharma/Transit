@@ -75,6 +75,11 @@ Gate B injects a stamp into `index.html` and `watch.html` at build time:
 <meta name="build-sha" content="<40-char Transit commit sha>" />
 ```
 
+The stamped sha is the last commit that touched the **published surface**
+(`public/Transit`, `public/data`, `public/l10n`, `public/favicon.svg`), not
+`HEAD`. Stamping `HEAD` would make every unrelated commit produce a different
+artifact and churn a pointless republish of identical content.
+
 Gate C then fetches `https://thebonhomme.com/transit/` with a cache-busting
 query and `no-cache`, and requires **both**:
 
