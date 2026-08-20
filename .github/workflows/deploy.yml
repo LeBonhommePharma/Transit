@@ -1,0 +1,82 @@
+name: Deploy /transit
+
+# Gates every push to main, then asks the apex Pages repo to publish.
+#
+# The actual publish engine lives in LeBonhommePharma/lebonhommepharma.github.io
+# (.github/workflows/publish-transit.yml) because this repo's GITHUB_TOKEN
+# cannot write to that repo. See DEPLOY.md.
+
+on:
+  push:
+    branches: [main]
+    # Only the published surface. Touching src/, ios/ or native/ does not
+    # change what /transit serves, so it does not need a publish.
+    paths:
+      - "public/Transit/**"
+      - "public/data/**"
+      - "public/l10n/**"
+      - "public/favicon.svg"
+      - "scripts/publish-transit.mjs"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-transit
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      sha256: ${{ steps.build.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # See the long scope note in the apex publish-transit.yml: this gates on
+      # `npm test` (162/162, green, and it imports the shipped static modules)
+      # rather than `npm run build`, which is red on main from 10 pre-existing
+      # TypeScript errors unrelated to the published static artifact. Nothing
+      # here is suppressed with `|| true`.
+      - name: "Gate A — tests"
+        run: npm test
+
+      - name: "Gate B — compose and verify artifact"
+        id: build
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          node scripts/publish-transit.mjs compose --src . --out _stage --sha "$sha"
+          node scripts/publish-transit.mjs verify-artifact --dir _stage --sha "$sha" | tee _gate.txt
+          echo "sha256=$(grep '^index-sha256=' _gate.txt | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger apex publish
+        env:
+          TOKEN: ${{ secrets.APEX_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then
+            echo "::error::Secret APEX_DISPATCH_TOKEN is not set, so this push cannot"
+            echo "::error::trigger an immediate publish. The apex repo's */15 cron will"
+            echo "::error::publish this commit within 15 minutes, and it can be published"
+            echo "::error::right now from the Actions tab of lebonhommepharma.github.io"
+            echo "::error::via 'Publish /transit' -> Run workflow. See DEPLOY.md."
+            exit 1
+          fi
+          curl -fsSL -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/LeBonhommePharma/lebonhommepharma.github.io/dispatches \
+            -d "{\"event_type\":\"transit-publish\",\"client_payload\":{\"ref\":\"${GITHUB_SHA}\"}}"
+          echo "Dispatched publish for ${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
