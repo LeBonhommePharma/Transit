@@ -41,11 +41,26 @@ apex .github/workflows/publish-transit.yml  ◀── also: */15 cron, workflow_
         Gate A  npm test on the Transit checkout
         Gate B  compose + stamp + verify artifact
         rsync --delete into transit/ only, commit, push to apex main
+        dispatch pages.yml explicitly  ← see the GITHUB_TOKEN note below
    └─ apex .github/workflows/pages.yml deploys the whole site
         Gate C  fetch the live URL, assert served bytes == built bytes
         Gate D  assert the other routes still return 200
         on failure: automatic git revert + push  (rollback)
 ```
+
+### The `GITHUB_TOKEN` trap
+
+**A push made with `GITHUB_TOKEN` does not start another workflow run.** This is
+deliberate GitHub behaviour to prevent recursive workflows, and it bit the first
+live run of this pipeline: the publish commit landed on apex `main` and
+`pages.yml` never fired, so the new bytes sat in git while the CDN kept serving
+the old ones. Gate C caught it, went red, and auto-reverted — which is the
+system working, but the publish could never have succeeded.
+
+So `publish-transit.yml` **dispatches `pages.yml` explicitly** (`gh workflow run
+pages.yml`, needing `permissions: actions: write`) and waits for that run, on
+both the publish and the rollback path. If you ever change how the publish
+commit is pushed, keep the explicit dispatch or nothing will deploy.
 
 The engine lives in the apex repo on purpose: a workflow's `GITHUB_TOKEN` is
 scoped to its own repository, so this repo cannot push to the apex repo. This
