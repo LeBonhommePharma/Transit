@@ -159,7 +159,7 @@ Publish /transit → Run workflow → `ref: <good Transit sha>`.
 | Gate C times out, stamp absent | apex `pages.yml` did not run or failed | check apex Actions; the auto-revert has already restored the old build |
 | Gate C: stamp ok, sha256 differs | something rewrote the bytes after build | compare `curl -s <url> \| shasum -a 256` to the run's `index-sha256` |
 | Gate D red | a non-`/transit` route broke | almost certainly unrelated to this pipeline; check apex `pages.yml` |
-| Transit `publish` job red, "APEX_DISPATCH_TOKEN is not set" | the optional instant-trigger secret is absent | either add it (below) or wait ≤15 min for the cron |
+| Transit `publish` job warns, "Immediate publish skipped" | the optional instant-trigger secret is absent | either add it (below) or wait for the cron — see the cadence note |
 
 ## The one optional secret
 
@@ -171,8 +171,21 @@ trigger needs one, because cross-repo dispatch requires a credential:
 - **Type:** a fine-grained PAT scoped to `LeBonhommePharma/lebonhommepharma.github.io`
   with **Contents: read-write** *or* just **Metadata: read** plus repository
   `Dispatch` permission. A classic PAT with `repo` also works but is broader.
-- **Without it:** pushes still gate correctly and still publish, via the cron,
-  within 15 minutes. The `publish` job goes red with an explanatory message so
-  the gap is visible rather than silent.
+- **Without it:** pushes still gate correctly and still publish, via the cron.
+  The `publish` job emits a GitHub **warning** and writes an explanatory job
+  summary, but stays green — an absent optional secret is a known gap with a
+  working fallback, not a broken deploy. It used to fail the job, which left
+  this workflow permanently red on every push and trained everyone to ignore
+  it; a red that is always red hides the reds that matter.
+
+  A token that IS set but whose dispatch fails still hard-fails the job. That
+  is a real breakage and is not swallowed.
+
+### Cron cadence, measured
+
+The apex schedule is written `*/15`, but GitHub deprioritises scheduled
+workflows under load. Observed intervals on 2026-08-21 were **27-33 minutes**
+(18:04 → 18:57 → 19:31 → 19:58 → 20:35 → 21:02). Plan for ~30 minutes, not 15,
+or set the secret and get the publish immediately.
 
 [`LeBonhommePharma/lebonhommepharma.github.io`]: https://github.com/LeBonhommePharma/lebonhommepharma.github.io
