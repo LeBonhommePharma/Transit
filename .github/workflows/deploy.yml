@@ -70,13 +70,32 @@ jobs:
           TOKEN: ${{ secrets.APEX_DISPATCH_TOKEN }}
         run: |
           set -euo pipefail
+          # An absent secret is a KNOWN configuration gap with a working
+          # fallback, not a broken deploy. Failing the job for it made this
+          # workflow permanently red — red since 2026-08-20 across every push
+          # — which trains everyone to ignore it and hides the failures that
+          # do matter. Warn loudly, stay green, and let the cron publish.
+          #
+          # A token that IS set but fails still hard-fails below: that is a
+          # real breakage and must not be swallowed.
           if [ -z "${TOKEN:-}" ]; then
-            echo "::error::Secret APEX_DISPATCH_TOKEN is not set, so this push cannot"
-            echo "::error::trigger an immediate publish. The apex repo's */15 cron will"
-            echo "::error::publish this commit within 15 minutes, and it can be published"
-            echo "::error::right now from the Actions tab of lebonhommepharma.github.io"
-            echo "::error::via 'Publish /transit' -> Run workflow. See DEPLOY.md."
-            exit 1
+            echo "::warning title=Immediate publish skipped::APEX_DISPATCH_TOKEN is not set."
+            {
+              echo "### Immediate publish skipped"
+              echo
+              echo "\`APEX_DISPATCH_TOKEN\` is not configured, so this push could not"
+              echo "dispatch an instant publish."
+              echo
+              echo "**This commit will still go live.** The apex repo publishes on a"
+              echo "schedule (nominally every 15 min; observed 27-33 min under load)."
+              echo
+              echo "To publish now: lebonhommepharma.github.io -> Actions ->"
+              echo "\"Publish /transit\" -> Run workflow."
+              echo
+              echo "To remove this warning permanently, see DEPLOY.md ->"
+              echo "\"The one optional secret\"."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           curl -fsSL -X POST \
             -H "Authorization: Bearer $TOKEN" \
